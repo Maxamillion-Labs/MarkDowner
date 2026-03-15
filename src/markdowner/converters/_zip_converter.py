@@ -60,6 +60,45 @@ class ZipConverter(DocumentConverter):
     def _prefix_entry_name(parent_name: str, child_name: str) -> str:
         return f"{parent_name}!{child_name}"
 
+    def _read_entry_bytes(
+        self,
+        zf: zipfile.ZipFile,
+        info: zipfile.ZipInfo,
+        total_uncompressed_bytes: int,
+        *,
+        chunk_size: int = 8192,
+    ) -> tuple[bytes, int, int]:
+        """Read a ZIP entry incrementally and enforce limits on actual bytes."""
+        entry_size = 0
+        chunks: list[bytes] = []
+
+        with zf.open(info, "r") as entry_stream:
+            while True:
+                chunk = entry_stream.read(chunk_size)
+                if not chunk:
+                    break
+
+                entry_size += len(chunk)
+                total_uncompressed_bytes += len(chunk)
+
+                if not self._limits.check_zip_entry_size(entry_size):
+                    raise ZipLimitExceededException(
+                        "entry_size",
+                        entry_size,
+                        self._limits.max_zip_entry_bytes,
+                    )
+
+                if not self._limits.check_zip_total_size(total_uncompressed_bytes):
+                    raise ZipLimitExceededException(
+                        "total_size",
+                        total_uncompressed_bytes,
+                        self._limits.max_zip_total_uncompressed_bytes,
+                    )
+
+                chunks.append(chunk)
+
+        return b"".join(chunks), entry_size, total_uncompressed_bytes
+
     def convert(
         self,
         stream: BinaryIO,
@@ -79,26 +118,19 @@ class ZipConverter(DocumentConverter):
                         self._limits.max_zip_entries,
                     )
 
-                total_size = sum(info.file_size for info in entries)
-                if not self._limits.check_zip_total_size(total_size):
-                    raise ZipLimitExceededException(
-                        "total_size",
-                        total_size,
-                        self._limits.max_zip_total_uncompressed_bytes,
-                    )
-
                 warnings = []
                 results = []
                 metadata = {
                     "entry_names": [info.filename for info in entries if not info.is_dir()],
                     "entry_count": entry_count,
-                    "total_uncompressed_bytes": total_size,
+                    "total_uncompressed_bytes": 0,
                     "files_processed": 0,
                     "processed_entries": [],
                     "skipped_entries": [],
                     "failed_entries": [],
                 }
                 current_depth = kwargs.get("_zip_depth", 0)
+                total_uncompressed_bytes = 0
 
                 for info in entries:
                     name = info.filename
@@ -106,27 +138,23 @@ class ZipConverter(DocumentConverter):
                     if info.is_dir():
                         continue
 
-                    if not self._limits.check_zip_entry_size(info.file_size):
-                        warning = f"Skipped entry too large: {name}"
-                        warnings.append(warning)
-                        metadata["skipped_entries"].append(
-                            {
-                                "name": name,
-                                "reason": "entry_too_large",
-                                "size": info.file_size,
-                            }
-                        )
-                        continue
-
                     try:
-                        content = zf.read(name)
+                        content, actual_entry_size, total_uncompressed_bytes = self._read_entry_bytes(
+                            zf,
+                            info,
+                            total_uncompressed_bytes,
+                        )
                     except Exception as exc:
+                        if isinstance(exc, ZipLimitExceededException):
+                            raise
                         warning = f"Failed to read ZIP entry {name}: {exc}"
                         warnings.append(warning)
                         metadata["failed_entries"].append(
                             {"name": name, "reason": "read_error", "error": str(exc)}
                         )
                         continue
+
+                    metadata["total_uncompressed_bytes"] = total_uncompressed_bytes
 
                     _, ext = os.path.splitext(name)
                     sub_stream_info = StreamInfo(
@@ -156,7 +184,7 @@ class ZipConverter(DocumentConverter):
                         next_depth = current_depth
 
                     if self._markdowner is None:
-                        results.append(f"## {name}\n\n- Size: {info.file_size} bytes\n")
+                        results.append(f"## {name}\n\n- Size: {actual_entry_size} bytes\n")
                         metadata["processed_entries"].append(name)
                         continue
 
@@ -166,6 +194,8 @@ class ZipConverter(DocumentConverter):
                             stream_info=sub_stream_info,
                             _zip_depth=next_depth,
                         )
+                    except ZipLimitExceededException:
+                        raise
                     except UnsupportedFormatException:
                         warning = f"Skipped unsupported ZIP entry: {name}"
                         warnings.append(warning)

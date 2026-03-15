@@ -7,8 +7,44 @@
 from typing import BinaryIO
 
 from .._base_converter import DocumentConverter, DocumentConverterResult
+from .._sandbox import ParserSandboxLimits, run_in_subprocess
 from .._stream_info import StreamInfo
+from .._temp_utils import materialize_stream_to_temp_path
 from .._exceptions import MissingDependencyException
+
+
+def _convert_msg_to_payload(msg_path: str) -> tuple[str, list[str]]:
+    import olefile
+
+    ole = olefile.OleFileIO(msg_path)
+    try:
+        lines = []
+        warnings = []
+
+        if ole.exists("__substg1.0_0037001F"):
+            subject = ole.openstream("__substg1.0_0037001F").read()
+            try:
+                lines.append(f"# {subject.decode('utf-16-le').rstrip(chr(0))}\n")
+            except Exception as exc:
+                warnings.append(f"MSG subject skipped: {exc}")
+
+        if ole.exists("__substg1.0_0C1F001F"):
+            sender = ole.openstream("__substg1.0_0C1F001F").read()
+            try:
+                lines.append(f"**From**: {sender.decode('utf-16-le').rstrip(chr(0))}\n")
+            except Exception as exc:
+                warnings.append(f"MSG sender skipped: {exc}")
+
+        if ole.exists("__substg1.0_1000001F"):
+            body = ole.openstream("__substg1.0_1000001F").read()
+            try:
+                lines.append(body.decode("utf-16-le").rstrip("\x00"))
+            except Exception as exc:
+                warnings.append(f"MSG body skipped: {exc}")
+
+        return "\n".join(lines), warnings
+    finally:
+        ole.close()
 
 
 class OutlookMsgConverter(DocumentConverter):
@@ -51,53 +87,16 @@ class OutlookMsgConverter(DocumentConverter):
                 "olefile is required for MSG conversion. Install with: pip install markdowner[outlook]"
             )
 
-        # Save to temp file
-        import tempfile
-        import os
-
-        stream.seek(0)
-        with tempfile.NamedTemporaryFile(suffix=".msg", delete=False) as tmp:
-            tmp.write(stream.read())
-            tmp_path = tmp.name
+        del olefile
 
         try:
-            ole = olefile.OleFileIO(tmp_path)
-
-            lines = []
-            warnings = []
-
-            # Try to get subject
-            if ole.exists("__substg1.0_0037001F"):
-                subject = ole.openstream("__substg1.0_0037001F").read()
-                try:
-                    subject = subject.decode("utf-16-le").rstrip("\x00")
-                    lines.append(f"# {subject}\n")
-                except Exception as exc:
-                    warnings.append(f"MSG subject skipped: {exc}")
-
-            # Try to get sender
-            if ole.exists("__substg1.0_0C1F001F"):
-                sender = ole.openstream("__substg1.0_0C1F001F").read()
-                try:
-                    sender = sender.decode("utf-16-le").rstrip("\x00")
-                    lines.append(f"**From**: {sender}\n")
-                except Exception as exc:
-                    warnings.append(f"MSG sender skipped: {exc}")
-
-            # Get body
-            if ole.exists("__substg1.0_1000001F"):
-                body = ole.openstream("__substg1.0_1000001F").read()
-                try:
-                    body = body.decode("utf-16-le").rstrip("\x00")
-                    lines.append(body)
-                except Exception as exc:
-                    warnings.append(f"MSG body skipped: {exc}")
-
-            ole.close()
-            text = "\n".join(lines)
+            with materialize_stream_to_temp_path(stream, ".msg") as tmp_path:
+                text, warnings = run_in_subprocess(
+                    _convert_msg_to_payload,
+                    str(tmp_path),
+                    limits=ParserSandboxLimits(),
+                )
         except Exception as e:
             raise RuntimeError(f"MSG conversion failed: {e}") from e
-        finally:
-            os.unlink(tmp_path)
 
         return DocumentConverterResult(text_content=text, warnings=warnings)

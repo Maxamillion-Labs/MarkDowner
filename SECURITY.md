@@ -1,21 +1,18 @@
 # Security Notes
 
-## Verified Limit Enforcement
+## Verified Controls
 
-### Command
-```bash
-python3 -m pytest tests/test_security_limits.py -v
-```
+- Local-file conversion enforces `max_input_bytes` during `read()` calls and rejects non-regular local sources.
+- ZIP conversion streams entries with chunked decompression and aborts on actual-byte entry and total limits.
+- ZIP-based package detection uses bounded metadata scans instead of `set(zf.namelist())`.
+- Heavy parser entry points run in subprocess workers with timeout handling and best-effort address-space limits.
+- Temp materialization uses `TemporaryDirectory()` with private directory/file permissions and normal-exit cleanup coverage.
 
-### Output
-Not captured separately. See `STATUS.md` final `python3 -m pytest tests/ -v` output for these passing checks:
+## Verified Commands
 
-```text
-tests/test_security_limits.py::TestInputSizeLimits::test_input_size_exception_for_unseekable_stream PASSED [ 73%]
-tests/test_security_limits.py::TestZipLimits::test_zip_too_many_entries_raises_exception PASSED [ 82%]
-tests/test_security_limits.py::TestRecursionLimits::test_nested_zip_recursion_limit PASSED [ 86%]
-tests/test_security_limits.py::TestLimitsFactory::test_create_custom_limits_preserves_zero_values PASSED [ 91%]
-```
+- `python3 -m pytest tests/test_security_limits.py -v`
+- `python3 -m pytest tests/test_zip_behavior.py -v`
+- `python3 -m pytest tests/test_security_regressions.py -v`
 
 ## Current Defaults
 
@@ -24,8 +21,11 @@ tests/test_security_limits.py::TestLimitsFactory::test_create_custom_limits_pres
 - `max_zip_total_uncompressed_bytes = 200 * 1024 * 1024`
 - `max_zip_entry_bytes = 50 * 1024 * 1024`
 - `max_recursion_depth = 3`
+- `max_zip_metadata_entries = 2048`
+- `max_zip_metadata_scan_bytes = 524288`
 
-## Image Metadata Guard
+## Residual Risks
 
-- ExifTool version check requires `>= 12.24`
-- Invalid version output, missing binary, and vulnerable versions are covered by tests in `tests/test_conversion_parity.py`
+- End-to-end execution of DOCX, PPTX, XLSX, EPUB, PDF, and MSG converters was not verified in this environment because their optional runtime packages are not all installed.
+- Temp cleanup on abrupt interpreter termination or `SIGKILL` cannot be guaranteed; only normal-exit cleanup is covered.
+- Subprocess memory caps rely on `resource.RLIMIT_AS` support and degrade to timeout-only isolation where the platform does not honor that limit.

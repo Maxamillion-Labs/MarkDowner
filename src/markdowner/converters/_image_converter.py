@@ -7,11 +7,11 @@
 import json
 import os
 import subprocess
-import tempfile
 from typing import BinaryIO, Optional
 
 from .._base_converter import DocumentConverter, DocumentConverterResult
 from .._stream_info import StreamInfo
+from .._temp_utils import materialize_stream_to_temp_path
 
 
 _MINIMUM_EXIFTOOL_VERSION = (12, 24)
@@ -115,31 +115,25 @@ class ImageConverter(DocumentConverter):
             else:
                 # Save to temp file
 
-                stream.seek(0)
                 ext = stream_info.extension or ".jpg"
-                with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-                    tmp.write(stream.read())
-                    tmp_path = tmp.name
-
                 try:
-                    result = subprocess.run(
-                        [exiftool_path, "-j", tmp_path],
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                        check=False,
-                    )
+                    with materialize_stream_to_temp_path(stream, ext) as tmp_path:
+                        result = subprocess.run(
+                            [exiftool_path, "-j", str(tmp_path)],
+                            capture_output=True,
+                            text=True,
+                            timeout=30,
+                            check=False,
+                        )
 
-                    if result.returncode == 0 and result.stdout:
-                        exif_data = json.loads(result.stdout)
-                        if exif_data:
-                            metadata["exif"] = exif_data[0] if exif_data else {}
-                    else:
-                        warnings.append("EXIF metadata skipped: ExifTool returned no metadata")
+                        if result.returncode == 0 and result.stdout:
+                            exif_data = json.loads(result.stdout)
+                            if exif_data:
+                                metadata["exif"] = exif_data[0] if exif_data else {}
+                        else:
+                            warnings.append("EXIF metadata skipped: ExifTool returned no metadata")
                 except Exception as exc:
                     warnings.append(f"EXIF metadata skipped: metadata extraction failed ({exc})")
-                finally:
-                    os.unlink(tmp_path)
         else:
             warnings.append("EXIF metadata skipped: ExifTool not configured")
 

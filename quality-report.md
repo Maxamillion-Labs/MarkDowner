@@ -4,13 +4,17 @@
 
 ### Command
 ```bash
-python3 -m pytest tests/ -q
+python3 -m pytest tests/ -v
 ```
 
 ### Output
 ```text
-......................................                            [100%]
-45 passed in 2.06s
+See `STATUS.md` for the full 60-test output captured from:
+
+- `python3 -m pytest tests/ -v`
+- `python3 -m pytest tests/test_security_limits.py -v`
+- `python3 -m pytest tests/test_zip_behavior.py -v`
+- `python3 -m pytest tests/test_security_regressions.py -v`
 ```
 
 ## Behaviors Covered by Tests
@@ -19,34 +23,16 @@ python3 -m pytest tests/ -q
 - Oversized stdin rejection
 - Malformed ZIP non-zero exit behavior
 - HTML Markdown structure
-- ZIP deterministic ordering and nested archive routing
+- ZIP deterministic ordering, nested archive routing, and actual-byte limit enforcement
 - ExifTool version guard warning paths
 - CSV encoding fallback handling
+- Parser sandbox timeout and worker-failure paths
+- TemporaryDirectory cleanup and restrictive permissions
 - Limit factory zero-value preservation
-- Plain ZIP rejection by DOCX/PPTX/XLSX/EPUB detectors
+- Plain ZIP rejection plus bounded DOCX/PPTX/XLSX/EPUB package detection
 - Fixture corpus presence and smoke coverage
 
-## Local Environment Constraint
+## Local Environment Note
 
-### Command
-```bash
-python3 - <<'PY'
-mods = ['pandas','openpyxl','mammoth','pptx','ebooklib','pdfplumber']
-for mod in mods:
-    try:
-        __import__(mod)
-        print(mod, 'yes')
-    except Exception as exc:
-        print(mod, 'no', type(exc).__name__)
-PY
-```
-
-### Output
-```text
-pandas yes
-openpyxl no ModuleNotFoundError
-mammoth no ModuleNotFoundError
-pptx no ModuleNotFoundError
-ebooklib no ModuleNotFoundError
-pdfplumber no ModuleNotFoundError
-```
+Project-local `.venv` now includes optional converter dependencies used by the security remediation run.
+Validation was executed in `.venv` with `python -m pytest tests/ -q` and passed (`60 passed`).

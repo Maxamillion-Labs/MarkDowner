@@ -1,12 +1,16 @@
+LICENSE
 README.md
 pyproject.toml
 src/markdowner/__init__.py
 src/markdowner/__main__.py
 src/markdowner/_base_converter.py
+src/markdowner/_bounded_stream.py
 src/markdowner/_core.py
 src/markdowner/_exceptions.py
 src/markdowner/_limits.py
+src/markdowner/_sandbox.py
 src/markdowner/_stream_info.py
+src/markdowner/_temp_utils.py
 src/markdowner.egg-info/PKG-INFO
 src/markdowner.egg-info/SOURCES.txt
 src/markdowner.egg-info/dependency_links.txt
@@ -27,6 +31,10 @@ src/markdowner/converters/_pptx_converter.py
 src/markdowner/converters/_xls_converter.py
 src/markdowner/converters/_xlsx_converter.py
 src/markdowner/converters/_zip_converter.py
+src/markdowner/converters/_zip_package_helpers.py
 tests/test_cli_parity.py
 tests/test_conversion_parity.py
+tests/test_fixture_corpus.py
 tests/test_security_limits.py
+tests/test_security_regressions.py
+tests/test_zip_behavior.py

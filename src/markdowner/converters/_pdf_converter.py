@@ -7,8 +7,20 @@
 from typing import BinaryIO, Optional
 
 from .._base_converter import DocumentConverter, DocumentConverterResult
+from .._sandbox import ParserSandboxLimits, run_in_subprocess
 from .._stream_info import StreamInfo
+from .._temp_utils import materialize_stream_to_temp_path
 from .._exceptions import MissingDependencyException
+
+
+def _extract_pdf_text(pdf_path: str) -> str:
+    from pdfminer.high_level import extract_text
+    from pdfminer.pdfparser import PDFSyntaxError
+
+    try:
+        return extract_text(pdf_path)
+    except PDFSyntaxError as exc:
+        raise RuntimeError(f"PDF parsing error: {exc}") from exc
 
 
 class PdfConverter(DocumentConverter):
@@ -51,23 +63,14 @@ class PdfConverter(DocumentConverter):
             raise MissingDependencyException(
                 "pdfminer.six is required for PDF conversion. Install with: pip install markdowner[pdf]"
             )
+        del extract_text, PDFSyntaxError
 
-        # Save to temp file (pdfminer requires a file path)
-        import tempfile
-        import os
-
-        stream.seek(0)
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            tmp.write(stream.read())
-            tmp_path = tmp.name
-
-        try:
-            try:
-                text = extract_text(tmp_path)
-            except PDFSyntaxError as e:
-                raise RuntimeError(f"PDF parsing error: {e}") from e
-        finally:
-            os.unlink(tmp_path)
+        with materialize_stream_to_temp_path(stream, ".pdf") as tmp_path:
+            text = run_in_subprocess(
+                _extract_pdf_text,
+                str(tmp_path),
+                limits=ParserSandboxLimits(),
+            )
 
         # Clean up text
         lines = [line.strip() for line in text.splitlines()]

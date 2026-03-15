@@ -6,9 +6,9 @@
 
 import subprocess
 import sys
-import tempfile
-import os
 from pathlib import Path
+from unittest import mock
+
 import pytest
 
 
@@ -156,6 +156,31 @@ def test_cli_malformed_zip_returns_non_zero(tmp_path):
 
     assert result.returncode != 0
     assert "conversion failed" in result.stderr.lower() or "bad zip file" in result.stderr.lower()
+
+
+def test_cli_rejects_infinite_like_input(monkeypatch, tmp_path, capsys):
+    """Mocked non-regular local input should fail without hanging."""
+    from markdowner import __main__
+    from markdowner._exceptions import UnsafeLocalSourceException
+
+    mocked_path = tmp_path / "infinite.bin"
+    mocked_path.write_bytes(b"x")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["markdowner", str(mocked_path)],
+    )
+
+    with mock.patch("markdowner.__main__.Path.exists", return_value=True):
+        with mock.patch(
+            "markdowner.__main__.MarkDowner.convert_local",
+            side_effect=UnsafeLocalSourceException(str(mocked_path)),
+        ):
+            assert __main__.main() == 1
+
+    captured = capsys.readouterr()
+    assert "non-regular local source" in captured.err.lower()
 
 
 if __name__ == "__main__":

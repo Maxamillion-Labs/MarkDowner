@@ -36,6 +36,12 @@ class Limits:
     # Maximum recursion depth for nested archives
     max_recursion_depth: int = 3
 
+    # Maximum number of ZIP metadata entries to scan during package detection
+    max_zip_metadata_entries: int = 2048
+
+    # Maximum cumulative ZIP metadata bytes to scan during package detection
+    max_zip_metadata_scan_bytes: int = 512 * 1024
+
     # Enabled flag - when False, limits are not enforced
     enabled: bool = True
 
@@ -80,6 +86,8 @@ def create_custom_limits(
     max_zip_total_uncompressed_bytes: Optional[int] = None,
     max_zip_entry_bytes: Optional[int] = None,
     max_recursion_depth: Optional[int] = None,
+    max_zip_metadata_entries: Optional[int] = None,
+    max_zip_metadata_scan_bytes: Optional[int] = None,
     enabled: bool = True,
 ) -> Limits:
     """Create a custom Limits instance with specified overrides."""
@@ -108,6 +116,16 @@ def create_custom_limits(
             max_recursion_depth
             if max_recursion_depth is not None
             else DEFAULT_LIMITS.max_recursion_depth
+        ),
+        max_zip_metadata_entries=(
+            max_zip_metadata_entries
+            if max_zip_metadata_entries is not None
+            else DEFAULT_LIMITS.max_zip_metadata_entries
+        ),
+        max_zip_metadata_scan_bytes=(
+            max_zip_metadata_scan_bytes
+            if max_zip_metadata_scan_bytes is not None
+            else DEFAULT_LIMITS.max_zip_metadata_scan_bytes
         ),
         enabled=enabled,
     )

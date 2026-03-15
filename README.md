@@ -2,37 +2,23 @@
 
 MarkDowner is a local CLI for converting files and stdin streams to Markdown.
 
+## Verified Controls
+
+- Read-time input size enforcement for local files and stdin
+- Explicit rejection of non-regular local sources
+- ZIP streaming limits enforced on actual decompressed bytes
+- Bounded ZIP package detection for DOCX/PPTX/XLSX/EPUB routing
+- Parser subprocess timeout and worker-failure handling
+- TemporaryDirectory-scoped temp cleanup on normal exit
+
 ## Verified Commands
 
-### Command
-```bash
-python3 -m markdowner --version
-```
-
-### Output
-```text
-markdowner 1.0.0
-```
-
-### Command
-```bash
-python3 -m markdowner sample.txt
-```
-
-### Output
-```text
-Sample text for CLI validation.
-```
-
-## Core Behaviors Verified Locally
-
-- Plain text file conversion
-- Stdin conversion with `-x`
-- Output file writing with `-o`
-- HTML to Markdown structure retention
-- ZIP routing, deterministic ordering, and recursion-limit warnings
-- Input-size limit enforcement for seekable and unseekable input
-- CSV decoding with UTF-8 and cp1252 fallback handling
+- `python3 -m pytest tests/ -v`
+- `python3 -m pytest tests/test_security_limits.py -v`
+- `python3 -m pytest tests/test_zip_behavior.py -v`
+- `python3 -m pytest tests/test_security_regressions.py -v`
+- `python3 -m markdowner --help`
+- `python3 -m markdowner --version`
 
 ## Optional Converter Dependencies
 

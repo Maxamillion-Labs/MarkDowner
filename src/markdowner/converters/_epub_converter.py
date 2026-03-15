@@ -10,13 +10,62 @@ from bs4 import BeautifulSoup
 from markdownify import markdownify as to_markdown
 
 from .._base_converter import DocumentConverter, DocumentConverterResult
+from .._limits import DEFAULT_LIMITS, Limits
+from .._sandbox import ParserSandboxLimits, run_in_subprocess
 from .._stream_info import StreamInfo
+from .._temp_utils import materialize_stream_to_temp_path
 from .._exceptions import MissingDependencyException
 from ._zip_package_helpers import zip_has_members
 
 
+def _convert_epub_to_payload(epub_path: str) -> tuple[str, list[str]]:
+    from ebooklib import ITEM_DOCUMENT, epub
+
+    book = epub.read_epub(epub_path)
+    warnings = []
+
+    lines = []
+    title = ""
+    authors = []
+    try:
+        title_meta = book.get_metadata("DC", "title")
+        if title_meta:
+            title = title_meta[0][0]
+        author_meta = book.get_metadata("DC", "creator")
+        authors = [item[0] for item in author_meta]
+    except Exception as exc:
+        warnings.append(f"EPUB metadata unavailable: {exc}")
+
+    lines.append(f"# {title or 'Untitled'}\n")
+
+    if authors:
+        lines.append(f"**Author**: {', '.join(authors)}\n")
+
+    lines.append("\n## Content\n")
+
+    for item in book.get_items():
+        if item.get_type() != ITEM_DOCUMENT:
+            continue
+        try:
+            content = item.get_content().decode("utf-8", errors="replace")
+            soup = BeautifulSoup(content, "html.parser")
+            for element in soup(["script", "style"]):
+                element.decompose()
+            chapter_text = to_markdown(str(soup), heading_style="ATX").strip()
+            if chapter_text:
+                lines.append(chapter_text)
+                lines.append("\n")
+        except Exception as exc:
+            warnings.append(f"EPUB content skipped: {exc}")
+
+    return "\n".join(lines), warnings
+
+
 class EpubConverter(DocumentConverter):
     """Converter for EPUB files."""
+
+    def __init__(self, limits: Limits = DEFAULT_LIMITS):
+        self._limits = limits
 
     def accepts(
         self,
@@ -38,6 +87,8 @@ class EpubConverter(DocumentConverter):
             stream,
             "mimetype",
             "META-INF/container.xml",
+            max_entries=self._limits.max_zip_metadata_entries,
+            max_metadata_bytes=self._limits.max_zip_metadata_scan_bytes,
         )
 
     def convert(
@@ -54,57 +105,16 @@ class EpubConverter(DocumentConverter):
                 "ebooklib is required for EPUB conversion. Install with: pip install markdowner[epub]"
             )
 
-        # Save to temp file
-        import tempfile
-        import os
-
-        stream.seek(0)
-        with tempfile.NamedTemporaryFile(suffix=".epub", delete=False) as tmp:
-            tmp.write(stream.read())
-            tmp_path = tmp.name
+        del epub
 
         try:
-            book = epub.read_epub(tmp_path)
-            warnings = []
-
-            lines = []
-            title = ""
-            authors = []
-            try:
-                title_meta = book.get_metadata("DC", "title")
-                if title_meta:
-                    title = title_meta[0][0]
-                author_meta = book.get_metadata("DC", "creator")
-                authors = [item[0] for item in author_meta]
-            except Exception as exc:
-                warnings.append(f"EPUB metadata unavailable: {exc}")
-
-            lines.append(f"# {title or 'Untitled'}\n")
-
-            if authors:
-                lines.append(f"**Author**: {', '.join(authors)}\n")
-
-            lines.append("\n## Content\n")
-
-            for item in book.get_items():
-                if item.get_type() != ITEM_DOCUMENT:
-                    continue
-                try:
-                    content = item.get_content().decode("utf-8", errors="replace")
-                    soup = BeautifulSoup(content, "html.parser")
-                    for element in soup(["script", "style"]):
-                        element.decompose()
-                    chapter_text = to_markdown(str(soup), heading_style="ATX").strip()
-                    if chapter_text:
-                        lines.append(chapter_text)
-                        lines.append("\n")
-                except Exception as exc:
-                    warnings.append(f"EPUB content skipped: {exc}")
-
-            text = "\n".join(lines)
+            with materialize_stream_to_temp_path(stream, ".epub") as tmp_path:
+                text, warnings = run_in_subprocess(
+                    _convert_epub_to_payload,
+                    str(tmp_path),
+                    limits=ParserSandboxLimits(),
+                )
         except Exception as e:
             raise RuntimeError(f"EPUB conversion failed: {e}") from e
-        finally:
-            os.unlink(tmp_path)
 
         return DocumentConverterResult(text_content=text, warnings=warnings)

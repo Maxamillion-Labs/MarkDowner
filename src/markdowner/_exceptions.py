@@ -53,6 +53,14 @@ class InputSizeExceededException(MarkDownerException):
         )
 
 
+class UnsafeLocalSourceException(MarkDownerException):
+    """Raised when a local path is not a regular file."""
+
+    def __init__(self, path: str):
+        self.path = path
+        super().__init__(f"Refusing to read non-regular local source: {path}")
+
+
 class ZipLimitExceededException(MarkDownerException):
     """Raised when ZIP archive exceeds limits."""
 

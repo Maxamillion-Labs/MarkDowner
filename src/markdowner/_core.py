@@ -12,6 +12,7 @@ import io
 import mimetypes
 import os
 import re
+import stat
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,11 +22,14 @@ import magika
 import charset_normalizer
 
 from ._base_converter import DocumentConverter, DocumentConverterResult
+from ._bounded_stream import BoundedStream
 from ._exceptions import (
     FileConversionException,
     UnsupportedFormatException,
     FailedConversionAttempt,
     InputSizeExceededException,
+    MarkDownerException,
+    UnsafeLocalSourceException,
 )
 from ._limits import Limits, DEFAULT_LIMITS
 from ._stream_info import StreamInfo
@@ -155,13 +159,13 @@ class MarkDowner:
 
         # Specific format converters (lower priority = tried first)
         self.register_converter(CsvConverter())
-        self.register_converter(EpubConverter())
+        self.register_converter(EpubConverter(limits=self._limits))
         self.register_converter(OutlookMsgConverter())
         self.register_converter(PdfConverter())
-        self.register_converter(PptxConverter())
+        self.register_converter(PptxConverter(limits=self._limits))
         self.register_converter(XlsConverter())
-        self.register_converter(XlsxConverter())
-        self.register_converter(DocxConverter())
+        self.register_converter(XlsxConverter(limits=self._limits))
+        self.register_converter(DocxConverter(limits=self._limits))
         self.register_converter(ImageConverter())
         self.register_converter(AudioConverter())
         self.register_converter(ZipConverter(markdowner=self, limits=self._limits))
@@ -205,17 +209,16 @@ class MarkDowner:
         """Convert a local file."""
         path_str = str(path)
 
-        # Check input size
-        if self._limits.enabled:
-            try:
-                file_size = os.path.getsize(path_str)
-            except OSError:
-                pass  # If we can't get size, skip check
-            else:
-                if not self._limits.check_input_size(file_size):
-                    raise InputSizeExceededException(
-                        file_size, self._limits.max_input_bytes, "size"
-                    )
+        source_stat = os.stat(path_str)
+        if not stat.S_ISREG(source_stat.st_mode):
+            raise UnsafeLocalSourceException(path_str)
+
+        if self._limits.enabled and not self._limits.check_input_size(source_stat.st_size):
+            raise InputSizeExceededException(
+                source_stat.st_size,
+                self._limits.max_input_bytes,
+                "size",
+            )
 
         # Build base stream info
         base_guess = StreamInfo(
@@ -237,8 +240,11 @@ class MarkDowner:
 
         # Convert
         with open(path_str, "rb") as fh:
-            guesses = self._get_stream_info_guesses(fh, base_guess)
-            return self._convert(fh, guesses, **kwargs)
+            bounded_fh: BinaryIO = fh
+            if self._limits.enabled:
+                bounded_fh = BoundedStream(fh, self._limits.max_input_bytes)
+            guesses = self._get_stream_info_guesses(bounded_fh, base_guess)
+            return self._convert(bounded_fh, guesses, **kwargs)
 
     def convert_stream(
         self,
@@ -334,6 +340,8 @@ class MarkDowner:
                             exiftool_path=self._exiftool_path,
                             **kwargs,
                         )
+                    except MarkDownerException:
+                        raise
                     except Exception as e:
                         failed_attempts.append(
                             FailedConversionAttempt(
