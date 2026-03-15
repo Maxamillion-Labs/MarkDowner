@@ -1,0 +1,2 @@
+[console_scripts]
+markdowner = markdowner.__main__:main

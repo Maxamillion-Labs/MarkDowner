@@ -1,0 +1,90 @@
+[project]
+name = "markdowner"
+version = "1.0.0"
+description = "CLI-first local document-to-Markdown converter"
+requires-python = ">=3.9"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "MarkDowner Team", email = "info@markdowner.dev"}
+]
+keywords = ["markdown", "converter", "cli", "document"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+dependencies = [
+    "beautifulsoup4>=4.12.0",
+    "markdownify>=0.11.0",
+    "magika>=0.2.0",
+    "charset-normalizer>=3.0.0",
+    "defusedxml>=0.7.0",
+]
+
+[project.optional-dependencies]
+pdf = [
+    "pdfminer.six>=20231228",
+    "pdfplumber>=0.10.0",
+]
+docx = [
+    "mammoth>=1.6.0",
+    "lxml>=5.0.0",
+]
+pptx = [
+    "python-pptx>=0.6.21",
+]
+xlsx = [
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "tabulate>=0.9.0",
+]
+xls = [
+    "pandas>=2.0.0",
+    "xlrd>=2.0.0",
+]
+outlook = [
+    "olefile>=0.46",
+]
+audio = [
+    "pydub>=0.24.1",
+    "SpeechRecognition>=3.10.0",
+]
+epub = [
+    "ebooklib>=0.16",
+]
+all = [
+    "pdfminer.six>=20231228",
+    "pdfplumber>=0.10.0",
+    "mammoth>=1.6.0",
+    "lxml>=5.0.0",
+    "python-pptx>=0.6.21",
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "xlrd>=2.0.0",
+    "olefile>=0.46",
+    "pydub>=0.24.1",
+    "SpeechRecognition>=3.10.0",
+    "ebooklib>=0.16",
+]
+
+[project.scripts]
+markdowner = "markdowner.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

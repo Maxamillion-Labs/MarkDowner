@@ -1,0 +1,138 @@
+Metadata-Version: 2.4
+Name: markdowner
+Version: 1.0.0
+Summary: CLI-first local document-to-Markdown converter
+Author-email: MarkDowner Team <info@markdowner.dev>
+License: MIT
+Keywords: markdown,converter,cli,document
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: beautifulsoup4>=4.12.0
+Requires-Dist: markdownify>=0.11.0
+Requires-Dist: magika>=0.2.0
+Requires-Dist: charset-normalizer>=3.0.0
+Requires-Dist: defusedxml>=0.7.0
+Provides-Extra: pdf
+Requires-Dist: pdfminer.six>=20231228; extra == "pdf"
+Requires-Dist: pdfplumber>=0.10.0; extra == "pdf"
+Provides-Extra: docx
+Requires-Dist: mammoth>=1.6.0; extra == "docx"
+Requires-Dist: lxml>=5.0.0; extra == "docx"
+Provides-Extra: pptx
+Requires-Dist: python-pptx>=0.6.21; extra == "pptx"
+Provides-Extra: xlsx
+Requires-Dist: pandas>=2.0.0; extra == "xlsx"
+Requires-Dist: openpyxl>=3.1.0; extra == "xlsx"
+Provides-Extra: xls
+Requires-Dist: pandas>=2.0.0; extra == "xls"
+Requires-Dist: xlrd>=2.0.0; extra == "xls"
+Provides-Extra: outlook
+Requires-Dist: olefile>=0.46; extra == "outlook"
+Provides-Extra: audio
+Requires-Dist: pydub>=0.24.1; extra == "audio"
+Requires-Dist: SpeechRecognition>=3.10.0; extra == "audio"
+Provides-Extra: epub
+Requires-Dist: ebooklib>=0.16; extra == "epub"
+Provides-Extra: all
+Requires-Dist: pdfminer.six>=20231228; extra == "all"
+Requires-Dist: pdfplumber>=0.10.0; extra == "all"
+Requires-Dist: mammoth>=1.6.0; extra == "all"
+Requires-Dist: lxml>=5.0.0; extra == "all"
+Requires-Dist: python-pptx>=0.6.21; extra == "all"
+Requires-Dist: pandas>=2.0.0; extra == "all"
+Requires-Dist: openpyxl>=3.1.0; extra == "all"
+Requires-Dist: xlrd>=2.0.0; extra == "all"
+Requires-Dist: olefile>=0.46; extra == "all"
+Requires-Dist: pydub>=0.24.1; extra == "all"
+Requires-Dist: SpeechRecognition>=3.10.0; extra == "all"
+Requires-Dist: ebooklib>=0.16; extra == "all"
+
+# MarkDowner
+
+**MarkDowner** is a CLI-first, local-only document-to-Markdown converter. It converts common file formats to Markdown reliably, with minimal attack surface and no server or network extras.
+
+## Features
+
+- **Local-only conversion** - No network calls, no server mode
+- **Security-first** - Input size limits, ZIP entry limits, recursion depth limits
+- **CLI-first design** - Simple, predictable command-line interface
+- **Broad format support** - PDF, DOCX, PPTX, XLSX, HTML, CSV, EPUB, MSG, images, audio, and more
+
+## Installation
+
+```bash
+# Basic installation
+pip install markdowner
+
+# With all format support
+pip install markdowner[all]
+
+# Or install in development mode
+pip install -e ".[all]"
+```
+
+## Quick Start
+
+```bash
+# Convert a file to stdout
+markdowner document.pdf
+
+# Convert a file to a specific output
+markdowner document.pdf -o output.md
+
+# Convert from stdin with extension hint
+cat document.pdf | markdowner -x .pdf
+
+# Convert from stdin with redirect
+markdowner < document.pdf -x .pdf
+
+# Show version
+markdowner --version
+```
+
+## Supported Formats
+
+| Format | Extension | Status |
+|--------|-----------|--------|
+| PDF | `.pdf` | ✅ |
+| DOCX | `.docx` | ✅ |
+| PPTX | `.pptx` | ✅ |
+| XLSX | `.xlsx` | ✅ |
+| XLS | `.xls` | ✅ |
+| HTML | `.html`, `.htm` | ✅ |
+| CSV | `.csv` | ✅ |
+| Plain Text | `.txt` | ✅ |
+| EPUB | `.epub` | ✅ |
+| Outlook MSG | `.msg` | ✅ |
+| Images | `.jpg`, `.png`, etc. | ✅ |
+| Audio | `.mp3`, `.wav`, etc. | ✅ |
+| ZIP | `.zip` | ✅ |
+
+## Security
+
+MarkDowner includes built-in security limits:
+
+- **Max input size**: 100MB by default
+- **Max ZIP entries**: 1,000 by default
+- **Max ZIP uncompressed size**: 200MB by default
+- **Max ZIP entry size**: 50MB by default
+- **Max recursion depth**: 3 levels by default
+
+These can be customized when using MarkDowner programmatically.
+
+## Requirements
+
+- Python 3.10+
+- Core dependencies: beautifulsoup4, markdownify, magika, charset-normalizer, defusedxml
+- Optional dependencies for specific formats (see `pyproject.toml`)
+
+## License
+
+MIT License - see LICENSE file for details.
