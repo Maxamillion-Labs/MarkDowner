@@ -64,7 +64,7 @@ CONTROL_WORD_MAP: Dict[str, ControlAction] = {
     "xmlopenpkg": ControlAction.DEST_SKIP,
     "mhtml": ControlAction.DEST_SKIP,
     "htmltag": ControlAction.IGNORE,
-    "*": ControlAction.IGNORE,
+    "*": ControlAction.DEST_SKIP,
     "pn": ControlAction.DEST_SKIP,
     "pntext": ControlAction.DEST_SKIP,
     "pnlvl": ControlAction.DEST_SKIP,

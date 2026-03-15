@@ -46,12 +46,15 @@ class Paragraph:
     inlines: List[InlineNode] = field(default_factory=list)
     is_heading: bool = False
     heading_level: Optional[int] = None
+    is_list_item: bool = False
+    is_ordered_list: bool = False
 
 
 @dataclass
 class ListBlock:
     """List/block element."""
     items: List[List[InlineNode]] = field(default_factory=list)
+    ordered: bool = False
 
 
 @dataclass
