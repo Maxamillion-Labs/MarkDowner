@@ -77,10 +77,10 @@ Exit behavior:
 | Images | ✅ | EXIF metadata path (+ ExifTool guard) |
 | Audio | ✅ | pydub / speech-recognition path |
 | ZIP | ✅ | recursive conversion with streaming limits |
-| RTF | ✅ | **pandoc subprocess** (`-f rtf -t gfm`) |
+| RTF | ✅ | **native lexer/parser/renderer** (`_rtf_lexer`, `_rtf_parser`, `_rtf_renderer`) |
 
 Notes:
-- RTF conversion uses external binary `pandoc` (non-interactive subprocess call).
+- RTF conversion is native-only (no Pandoc dependency in the `.rtf` path).
 - ZIP processing includes nested handling with recursion/decompression limits.
 
 ---
@@ -136,8 +136,7 @@ Notes:
 - `epub`: ebooklib
 
 ## External binary
-- `pandoc` (required for RTF conversion)
-  - macOS install: `brew install pandoc`
+- No external binary is required for RTF conversion.
 
 ### Important packaging note
 Current `all` extra in `pyproject.toml` omits `tabulate`.  
@@ -161,8 +160,8 @@ Result observed: `72 passed` (last verified 2026-03-15).
 
 ## 8) Known Limitations
 
-1. RTF output quality is bounded by Pandoc’s RTF reader behavior and input document structure.
-2. Very large/complex documents may hit subprocess timeout thresholds.
+1. Native RTF parser v1 targets common control words; advanced tables/objects/rare controls may be skipped or flattened.
+2. Malformed RTF returns controlled conversion errors instead of best-effort recovery in all cases.
 3. Temp artifacts are cleaned on normal exit; abrupt kill/power-loss can leave residue.
 4. Memory hard caps depend partly on platform capability for resource limits.
 

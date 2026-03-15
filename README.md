@@ -12,7 +12,7 @@ MarkDowner started as a focused fork concept and is now an implemented, test-cov
 - **Local-first by default** (no built-in remote URL fetch pipeline)
 - **Security controls baked in** (input limits, ZIP limits, recursion limits, unsafe source rejection)
 - **Pipeline-friendly UX** (file input, stdin, stdout, output file)
-- **RTF support via Pandoc** with non-interactive subprocess execution
+- **RTF support via native parser/renderer** (no Pandoc required for `.rtf`)
 
 ---
 
@@ -84,11 +84,7 @@ pip install -e ".[all]" tabulate
 
 ### 4) Install external tools
 
-Required for `.rtf` conversion:
-
-```bash
-brew install pandoc
-```
+RTF conversion is native and does not require Pandoc.
 
 Recommended for richer image metadata handling:
 
@@ -135,14 +131,18 @@ python -m markdowner --version
 
 ## RTF Conversion Notes
 
-RTF conversion is handled by Pandoc:
+RTF conversion is native-only:
 
-- Input: `-f rtf`
-- Output: `-t gfm`
-- Non-interactive subprocess execution
-- Timeout-protected execution path
+- Lexer/parser/IR/renderer pipeline in `src/markdowner/converters/_rtf_*`
+- No subprocess or external converter invocation for `.rtf`
+- `.rtf` inputs are routed to the dedicated RTF converter before CSV/generic text probes
+- Controlled conversion errors are returned for malformed/unsupported RTF
 
-If Pandoc is missing, MarkDowner returns a clear dependency error.
+Known limitations (v1 native parser):
+
+- Focused on common controls (`par`, `line`, `tab`, `b`, `i`, `ul`, `uN`) and basic destination skipping
+- Advanced tables, embedded objects, and uncommon control words may render as plain text or be skipped
+- For heavily stylized enterprise exports, some manual markdown cleanup may still be needed
 
 ---
 

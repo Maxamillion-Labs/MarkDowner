@@ -86,10 +86,8 @@ MarkDowner uses optional Python dependencies for some formats plus external tool
 
 ## External tools
 
-### Required for RTF
-```bash
-brew install pandoc
-```
+### RTF conversion
+No external tool is required; `.rtf` uses the native parser.
 
 ### Recommended for image metadata extraction
 ```bash
@@ -127,11 +125,13 @@ python -m markdowner documents.zip -o documents.md
 
 ## Troubleshooting
 
-## “pandoc is required for RTF conversion”
-Install Pandoc:
-```bash
-brew install pandoc
-```
+## RTF parse errors or unsupported constructs
+MarkDowner gives `.rtf` files precedence over CSV-style text detection and uses a native parser.
+
+If conversion fails with an RTF parse/error message:
+- Confirm the file starts with a valid RTF header (`{\rtf...}`)
+- Re-export from source app as RTF (or DOCX) and retry
+- For heavily styled/legacy RTF, convert to DOCX first for higher fidelity
 
 ## “ExifTool not configured” warning
 Optional: install ExifTool
@@ -141,6 +141,7 @@ brew install exiftool
 
 ## Output looks rough for some RTF files
 - RTF conversion quality depends on Pandoc + source document complexity
+- If Pandoc fails, MarkDowner reports whether it was missing, timed out, or exited non-zero and includes truncated stderr when available
 - Try exporting source to DOCX first, then convert DOCX if needed
 
 ## Command not found / wrong Python
