@@ -153,7 +153,7 @@ class RtfRenderer:
 
     def _escape_markdown(self, text: str) -> str:
         """Escape minimal Markdown characters to preserve readability."""
-        return text.replace("`", "\\`")
+        return text.replace("\\", "\\\\")
 
     def _emit_blank_line(self) -> None:
         """Emit a blank line, limiting to max 2 consecutive."""
