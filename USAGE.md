@@ -129,6 +129,13 @@ print(result.warnings)
 markdowner report.docx -o report.md
 ```
 
+### Convert an RTF file
+
+```bash
+markdowner document.rtf -o document.md
+cat document.rtf | markdowner -x .rtf
+```
+
 ### Convert from pipe
 
 ```bash

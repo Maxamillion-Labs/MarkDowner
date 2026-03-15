@@ -29,6 +29,7 @@ MarkDowner is a local CLI for converting files and stdin streams to Markdown.
 - `pdf`: `pdfminer.six`, `pdfplumber`
 - `epub`: `ebooklib`
 - `outlook`: `olefile`
+- `rtf`: `pandoc` (external binary, install via `brew install pandoc` on macOS)
 
 ## Repository Evidence
 

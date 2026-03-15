@@ -7,6 +7,7 @@
 - ZIP-based package detection uses bounded metadata scans instead of `set(zf.namelist())`.
 - Heavy parser entry points run in subprocess workers with timeout handling and best-effort address-space limits.
 - Temp materialization uses `TemporaryDirectory()` with private directory/file permissions and normal-exit cleanup coverage.
+- RTF conversion uses pandoc as an external subprocess with a 30-second timeout and non-interactive execution.
 
 ## Verified Commands
 
