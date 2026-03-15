@@ -96,3 +96,43 @@ class TestRtfRenderer:
         renderer = RtfRenderer(doc)
         output = renderer.render()
         assert "Content" in output
+
+    def test_inline_backticks_not_escaped(self):
+        """Inline backticks should not be escaped in markdown output."""
+        doc = Document()
+        doc.blocks.append(Paragraph(
+            inlines=[TextInline(content="`value_screening`")]
+        ))
+        renderer = RtfRenderer(doc)
+        output = renderer.render()
+        assert "`value_screening`" in output
+        assert "\\`" not in output
+
+    def test_code_fence_lines_not_escaped(self):
+        """Lines starting with triple backticks should not be escaped."""
+        doc = Document()
+        doc.blocks.append(Paragraph(
+            inlines=[TextInline(content="```sql")]
+        ))
+        doc.blocks.append(Paragraph(
+            inlines=[TextInline(content="SELECT * FROM tickers")]
+        ))
+        doc.blocks.append(Paragraph(
+            inlines=[TextInline(content="```")]
+        ))
+        renderer = RtfRenderer(doc)
+        output = renderer.render()
+        assert "```sql" in output
+        assert "```" in output
+        assert "\\`\\`\\`" not in output
+
+    def test_backslash_escaped(self):
+        """Backslashes should be escaped in markdown output."""
+        doc = Document()
+        doc.blocks.append(Paragraph(
+            inlines=[TextInline(content="path\\to\\file")]
+        ))
+        renderer = RtfRenderer(doc)
+        output = renderer.render()
+        assert "\\\\" in output
+        assert "path\\to\\file" not in output
