@@ -144,6 +144,7 @@ class MarkDowner:
             OutlookMsgConverter,
             EpubConverter,
             CsvConverter,
+            RtfConverter,
         )
 
         # Register converters - later registrations appear first in priority order
@@ -158,6 +159,7 @@ class MarkDowner:
         )
 
         # Specific format converters (lower priority = tried first)
+        self.register_converter(RtfConverter())
         self.register_converter(CsvConverter())
         self.register_converter(EpubConverter(limits=self._limits))
         self.register_converter(OutlookMsgConverter())

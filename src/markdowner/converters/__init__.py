@@ -17,6 +17,7 @@ from ._outlook_msg_converter import OutlookMsgConverter
 from ._zip_converter import ZipConverter
 from ._epub_converter import EpubConverter
 from ._csv_converter import CsvConverter
+from ._rtf_converter import RtfConverter
 
 __all__ = [
     "PlainTextConverter",
@@ -32,4 +33,5 @@ __all__ = [
     "ZipConverter",
     "EpubConverter",
     "CsvConverter",
+    "RtfConverter",
 ]
