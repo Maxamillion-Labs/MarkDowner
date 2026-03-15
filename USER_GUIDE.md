@@ -65,6 +65,7 @@ python -m markdowner --help
 ## Supported Formats
 
 - Text: `.txt`
+- Rich Text: `.rtf`
 - HTML: `.html`, `.htm`
 - CSV: `.csv`
 - PDF: `.pdf`
@@ -76,7 +77,6 @@ python -m markdowner --help
 - Images: `.jpg`, `.jpeg`, `.png`
 - Audio: `.wav`, `.mp3`, `.m4a`, `.mp4`
 - Archives: `.zip` (recursive conversion for supported inner files)
-- Rich Text: `.rtf` (via `pandoc`)
 
 ---
 
@@ -138,11 +138,6 @@ Optional: install ExifTool
 ```bash
 brew install exiftool
 ```
-
-## Dropbox file read issues (`Resource deadlock avoided`)
-This usually means the file is cloud-only (`dataless`).
-- Open the file once locally (or mark for offline)
-- Retry conversion
 
 ## Output looks rough for some RTF files
 - RTF conversion quality depends on Pandoc + source document complexity
