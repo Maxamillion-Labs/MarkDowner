@@ -1,377 +1,188 @@
-# MarkDowner Specification
+# MarkDowner Specification (As-Built)
 
-## 1. Purpose
-
-**MarkDowner** is a stripped-down, CLI-first fork of Microsoft MarkItDown focused on one job:
-
-> Convert local files and stdin streams into Markdown reliably, with minimal attack surface and no server/runtime extras.
-
-This spec defines scope, architecture, feature set, constraints, implementation phases, and acceptance criteria.
+Date: 2026-03-15  
+Project: `~/Projects/MarkDowner`  
+Package: `markdowner`  
+Version: `1.0.0`
 
 ---
 
-## 2. Product Goals
+## 1) Purpose
 
-1. **Keep core conversion power** across major file types.
-2. **Preserve familiar CLI ergonomics**:
-   - `markdowner input.pdf`
-   - `markdowner input.pdf -o output.md`
-   - `cat input.pdf | markdowner -x .pdf`
-   - `markdowner < input.pdf -x .pdf`
-3. **Eliminate unnecessary complexity** (MCP/server mode, network fetch paths, cloud extras by default).
-4. **Improve reliability and safety** for local automation use.
+MarkDowner is a local, CLI-first document-to-Markdown converter.
 
----
+Primary goal:
+- Convert local files and stdin streams to Markdown using one consistent CLI.
 
-## 3. Non-Goals
-
-MarkDowner will **not** include:
-
-- MCP server (`markitdown-mcp`) support
-- SSE/HTTP serving modes
-- Remote URI conversion by default (`http://`, `https://`, `data:`, `file:` URI parsing paths)
-- Azure Document Intelligence integration (default fork state)
-- Web-specific converters requiring remote fetch logic (YouTube/Wikipedia/Bing SERP)
-- “Do-everything” plugin marketplace behavior in v1
+Secondary goals:
+- Keep attack surface low (no server mode, no network fetch path in core flow).
+- Enforce practical resource controls for untrusted input.
 
 ---
 
-## 4. Scope (v1)
+## 2) Current Product Scope
 
-### 4.1 In-scope conversions (local file + stdin)
+### In scope (implemented)
+- Local file conversion (`markdowner <file>`)
+- Stdin conversion (`cat file | markdowner -x .ext`)
+- Output to stdout or `-o/--output`
+- Extension / MIME / charset hints
 
-- PDF
-- DOCX
-- PPTX
-- XLSX
-- XLS
-- HTML/HTM (local content only)
-- CSV
-- JSON
-- XML
-- Plain text
-- EPUB
-- Outlook MSG
-- Images (JPG/JPEG/PNG)
-- Audio (WAV/MP3/M4A/MP4)
-- ZIP (recursive conversion of supported contained files)
-
-### 4.2 CLI behavior to preserve
-
-- Input from file path argument
-- Input from stdin binary stream
-- Output to stdout by default
-- Output to file via `-o/--output`
-- Extension hint for stdin via `-x/--extension`
-- MIME hint via `-m/--mime-type`
-- Charset hint via `-c/--charset`
-- Version output
+### Out of scope (intentionally)
+- MCP/server mode
+- Remote URL conversion (`http/https/data/file` URI ingestion)
+- Cloud doc-intel style integrations
+- Implicit plugin marketplace loading
 
 ---
 
-## 5. Project Structure
+## 3) CLI Contract (implemented)
 
-Target folder:
-
-- `projects/MarkDowner/`
-
-Recommended package structure:
-
-```text
-MarkDowner/
-  README.md
-  LICENSE
-  pyproject.toml
-  src/markdowner/
-    __init__.py
-    __main__.py
-    core.py
-    stream_info.py
-    exceptions.py
-    converters/
-      ...
-  tests/
-    test_cli_*.py
-    test_module_*.py
-    test_files/
-```
-
-Notes:
-- Keep a **single package** for v1 simplicity.
-- Do not include MCP package or server scaffolding.
-
----
-
-## 6. Architecture
-
-### 6.1 Core components
-
-1. **CLI layer (`__main__.py`)**
-   - Parse arguments
-   - Build conversion context
-   - Route input source (path or stdin)
-   - Emit result to stdout or output file
-
-2. **Conversion orchestrator (`core.py`)**
-   - Register converters
-   - Infer stream metadata (extension/mimetype/charset)
-   - Try converters by priority
-   - Return normalized Markdown
-
-3. **Converter interface (`base converter`)**
-   - `accepts(stream, stream_info, **kwargs) -> bool`
-   - `convert(stream, stream_info, **kwargs) -> Result`
-
-4. **Per-format converters**
-   - One module per format family
-
-### 6.2 Processing model
-
-- No network call path in core orchestrator
-- Stream-first operation where possible
-- Controlled buffering when required by third-party libs
-- Deterministic converter ordering by explicit priority
-
----
-
-## 7. Dependency Strategy
-
-### 7.1 Python version
-
-- `>=3.10`
-
-### 7.2 Base dependencies (minimal always-on)
-
-- `beautifulsoup4`
-- `markdownify`
-- `magika`
-- `charset-normalizer`
-- `defusedxml`
-
-### 7.3 Optional feature groups
-
-- `[pdf]` -> `pdfminer.six`, `pdfplumber`
-- `[docx]` -> `mammoth`, `lxml`
-- `[pptx]` -> `python-pptx`
-- `[xlsx]` -> `pandas`, `openpyxl`
-- `[xls]` -> `pandas`, `xlrd`
-- `[outlook]` -> `olefile`
-- `[audio]` -> `pydub`, `SpeechRecognition`
-- `[all]` -> all local conversion groups
-
-### 7.4 Removed dependencies
-
-- `mcp`
-- `uvicorn` / `starlette` (if only present for MCP package)
-- Azure Document Intelligence SDK deps in v1 default
-- YouTube transcript deps if network converters removed
-
----
-
-## 8. Security Requirements
-
-### 8.1 Hard requirements
-
-1. **No HTTP fetching in core path** (v1)
-2. **No unauthenticated server mode** (MCP removed)
-3. **No implicit plugin execution** in v1
-4. **Bounds on untrusted input**:
-   - max input bytes (configurable)
-   - max zip entries
-   - max uncompressed zip bytes
-   - max per-entry bytes
-   - max recursion depth for nested archives
-
-### 8.2 Safe defaults
-
-- Plugins disabled / absent
-- Network disabled
-- Fail closed on unsupported formats
-- Clear warnings for partial conversion
-
-### 8.3 Third-party tool safety
-
-- Preserve ExifTool version guard (`>=12.24`) before use
-- Graceful fallback when optional tools unavailable
-
----
-
-## 9. Reliability Requirements
-
-1. **No silent data loss where avoidable**
-   - ZIP converter must report skipped files in result metadata/warnings
-2. **Deterministic output normalization**
-   - consistent line endings and whitespace normalization
-3. **Resource-aware behavior**
-   - avoid unbounded buffering where practical
-4. **Stable CLI exit semantics**
-   - `0` success
-   - non-zero for conversion failure / invalid args
-
----
-
-## 10. Usability Requirements
-
-1. Preserve straightforward CLI commands.
-2. Keep errors human-readable and actionable.
-3. Include `--help` examples for common workflows.
-4. Maintain output compatibility with shell pipelines.
-
----
-
-## 11. CLI Specification
-
-Command name:
-
-- Primary: `markdowner`
-
-Arguments:
-
+Command:
 - `markdowner [filename]`
-- `-o, --output <path>`: write Markdown to file
-- `-x, --extension <.ext>`: hint extension for stdin
+
+Args:
+- `-o, --output <path>`
+- `-x, --extension <.ext>`
 - `-m, --mime-type <type/subtype>`
 - `-c, --charset <encoding>`
 - `--version`
-- `--help`
 
-Behavior:
+Supported workflows:
+1. `markdowner input.pdf`
+2. `markdowner input.pdf -o output.md`
+3. `cat input.pdf | markdowner -x .pdf`
+4. `markdowner < input.pdf -x .pdf`
 
-- If `filename` omitted: read `sys.stdin.buffer`
-- If output omitted: print to stdout using safe encoding fallback
-- Validate MIME/charset hints early
+Exit behavior:
+- `0` on success
+- `1` on controlled conversion/validation errors
 
 ---
 
-## 12. Converter Coverage Matrix (v1)
+## 4) Converter Coverage (current)
 
-| Format | Support | Notes |
+| Format | Status | Backend/Path |
 |---|---|---|
-| PDF | Yes | text/table extraction; fallback path retained |
-| DOCX | Yes | mammoth-based HTML-to-Markdown pipeline |
-| PPTX | Yes | shape/text/image metadata support |
-| XLSX/XLS | Yes | tabular sheet conversion |
-| HTML | Yes | local HTML only |
-| CSV/JSON/XML/TXT | Yes | structured text conversion |
-| EPUB | Yes | local conversion |
-| MSG | Yes | metadata/body extraction |
-| Images | Yes | metadata + optional LLM caption hooks disabled by default |
-| Audio | Yes | metadata + optional transcription |
-| ZIP | Yes | recursive local conversion with limits |
-| URL input | No (v1) | intentionally removed |
-| MCP transport | No | intentionally removed |
+| TXT / generic text | ✅ | plain text converter |
+| HTML | ✅ | BeautifulSoup + markdownify path |
+| CSV | ✅ | pandas-based table conversion |
+| PDF | ✅ | pdfminer/pdfplumber path |
+| DOCX | ✅ | mammoth + markdown pipeline |
+| PPTX | ✅ | python-pptx |
+| XLSX | ✅ | pandas + openpyxl |
+| XLS | ✅ | pandas + xlrd |
+| EPUB | ✅ | ebooklib |
+| MSG (Outlook) | ✅ | olefile path |
+| Images | ✅ | EXIF metadata path (+ ExifTool guard) |
+| Audio | ✅ | pydub / speech-recognition path |
+| ZIP | ✅ | recursive conversion with streaming limits |
+| RTF | ✅ | **pandoc subprocess** (`-f rtf -t gfm`) |
+
+Notes:
+- RTF conversion uses external binary `pandoc` (non-interactive subprocess call).
+- ZIP processing includes nested handling with recursion/decompression limits.
 
 ---
 
-## 13. Testing Specification
+## 5) Security Controls (implemented)
 
-### 13.1 Unit tests
+1. **Bounded read controls**
+   - Input-size enforcement for local and stdin streams.
 
-- Converter acceptance routing
-- Stream metadata inference
-- CLI argument parsing and error handling
-- Output normalization
+2. **Unsafe local source rejection**
+   - Non-regular local sources are rejected in local-file path.
 
-### 13.2 Integration tests
+3. **ZIP protections**
+   - Entry count limit
+   - Per-entry decompressed byte limit
+   - Total decompressed byte limit
+   - Recursion depth limit
+   - Streaming enforcement of decompressed-byte limits
 
-- Golden-file comparison using fixture corpus
-- stdin + `-x` conversion scenarios
-- zip recursion + limits
-- large-file guardrail behavior
+4. **Bounded ZIP package detection**
+   - DOCX/PPTX/XLSX/EPUB signature checks are bounded.
 
-### 13.3 Compatibility tests
+5. **Parser isolation hooks**
+   - Heavy parser paths use subprocess timeout/failure handling via internal sandbox helper.
 
-- Compare selected MarkItDown outputs vs MarkDowner outputs on same fixtures
-- Define acceptable deltas (formatting differences tolerated, content loss not tolerated)
+6. **Temp-file hygiene**
+   - TemporaryDirectory-based lifecycle for conversion temp artifacts (normal-exit cleanup).
 
-### 13.4 CI matrix
-
-- Python 3.10, 3.11, 3.12, 3.13
-- Lint + tests on push/PR
-
----
-
-## 14. Migration Plan from MarkItDown
-
-### Phase 0: Bootstrap
-- Copy MarkItDown core converter package into `MarkDowner`.
-- Rename package/module references to `markdowner`.
-
-### Phase 1: De-scope
-- Remove MCP package entirely.
-- Remove URL/URI conversion pathways from orchestrator.
-- Remove cloud and web converters (Doc Intel, YouTube, Wikipedia, Bing).
-
-### Phase 2: Harden
-- Add file/zip size and recursion limits.
-- Add timeout wrappers where feasible.
-- Convert silent skips to explicit warnings.
-
-### Phase 3: Polish
-- Finalize CLI docs and examples.
-- Align dependency extras and packaging metadata.
-- Run regression and fixture tests.
+7. **ExifTool version guard**
+   - Enforces minimum safe ExifTool version (`>= 12.24`) before EXIF extraction.
 
 ---
 
-## 15. Acceptance Criteria (v1)
+## 6) Dependencies
 
-MarkDowner v1 is complete when all are true:
+## Python requirement
+- `>=3.10`
 
-1. CLI supports file path, `-o`, and stdin piping workflows exactly as specified.
-2. All in-scope local file formats convert successfully with fixture tests passing.
-3. No MCP/server code remains.
-4. No HTTP/HTTPS/data/file URI conversion path remains by default.
-5. Zip and input guardrails are implemented and tested.
-6. CI passes across Python 3.10–3.13.
-7. Documentation clearly states scope, limits, and examples.
+## Base deps (always)
+- beautifulsoup4
+- markdownify
+- magika
+- charset-normalizer
 
----
+## Optional extras
+- `pdf`: pdfminer.six, pdfplumber
+- `docx`: mammoth, lxml
+- `pptx`: python-pptx
+- `xlsx`: pandas, openpyxl, tabulate
+- `xls`: pandas, xlrd
+- `outlook`: olefile
+- `audio`: pydub, SpeechRecognition
+- `epub`: ebooklib
 
-## 16. Risks and Mitigations
+## External binary
+- `pandoc` (required for RTF conversion)
+  - macOS install: `brew install pandoc`
 
-1. **Behavior drift from upstream**
-   - Mitigation: keep fixture-based compatibility tests.
-2. **Dependency churn in document libs**
-   - Mitigation: pin minimum tested versions and regular update cadence.
-3. **Performance regressions on large docs**
-   - Mitigation: benchmark representative corpus; enforce limits.
-4. **Silent conversion gaps**
-   - Mitigation: structured warning/report output in result metadata.
-
----
-
-## 17. Future Extensions (post-v1, optional)
-
-- Optional plugin support behind explicit trust flag
-- Structured JSON report mode (`--report`) for automation pipelines
-- Parallel conversion mode for batch jobs
-
----
-
-## 18. Implementation Notes from MarkItDown Audit
-
-This spec is informed by observed MarkItDown code characteristics:
-
-- Good converter abstraction and prioritization model (worth preserving)
-- Useful format breadth (worth preserving)
-- MCP package introduces unnecessary exposure for this use case (remove)
-- Some paths currently buffer entire streams and silently skip failures (improve)
+### Important packaging note
+Current `all` extra in `pyproject.toml` omits `tabulate`.  
+For broad install, use:
+```bash
+pip install -e ".[all]" tabulate
+```
 
 ---
 
-## 19. Versioning and Naming
+## 7) Current Validation Snapshot
 
-- Project name: **MarkDowner**
-- CLI command: **markdowner**
-- Initial version: `0.1.0` (internal MVP) or `1.0.0` if release-ready
+Recent local validation in project venv:
+```bash
+source .venv/bin/activate
+python -m pytest tests/ -q
+```
+Result observed: `72 passed` (last verified 2026-03-15).
 
 ---
 
-## 20. Decision Log (Initial)
+## 8) Known Limitations
 
-1. CLI-first local converter product
-2. No MCP/server mode in v1
-3. No network URI conversion in v1
-4. Keep broad local file format conversion support
-5. Prioritize reliability and safety guardrails over feature breadth
+1. RTF output quality is bounded by Pandoc’s RTF reader behavior and input document structure.
+2. Very large/complex documents may hit subprocess timeout thresholds.
+3. Temp artifacts are cleaned on normal exit; abrupt kill/power-loss can leave residue.
+4. Memory hard caps depend partly on platform capability for resource limits.
+
+---
+
+## 9) Non-Goals (still true)
+
+- Real-time server/API mode
+- Remote web fetch conversion pipeline
+- Background autonomous plugin execution
+
+---
+
+## 10) Operational Recommendation
+
+Use project-local venv for deterministic runs:
+```bash
+cd ~/Projects/MarkDowner
+source .venv/bin/activate
+python -m markdowner --version
+```
+
+For user-level shared runtime, use `~/.venvs/markdowner` and explicitly invoke that interpreter.
