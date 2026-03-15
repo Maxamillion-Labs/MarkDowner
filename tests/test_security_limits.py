@@ -59,15 +59,21 @@ class TestInputSizeLimits:
         class UnseekableStream:
             def __init__(self, payload: bytes):
                 self._buffer = io.BytesIO(payload)
+                self.bytes_read = 0
 
             def read(self, size: int = -1) -> bytes:
-                return self._buffer.read(size)
+                chunk = self._buffer.read(size)
+                self.bytes_read += len(chunk)
+                return chunk
 
             def seekable(self) -> bool:
                 return False
 
+        stream = UnseekableStream(b"x" * 32)
         with pytest.raises(InputSizeExceededException):
-            md.convert_stream(UnseekableStream(b"x" * 32))
+            md.convert_stream(stream)
+
+        assert stream.bytes_read == 11
 
 
 class TestZipLimits:
@@ -127,21 +133,30 @@ class TestRecursionLimits:
 
     def test_nested_zip_recursion_limit(self):
         """Nested ZIP archives beyond the limit should be skipped with a warning."""
+        deepest_zip = io.BytesIO()
+        with zipfile.ZipFile(deepest_zip, "w") as zf:
+            zf.writestr("deep.txt", "deep content")
+
         inner_zip = io.BytesIO()
         with zipfile.ZipFile(inner_zip, "w") as zf:
-            zf.writestr("inner.txt", "nested content")
+            zf.writestr("deeper.zip", deepest_zip.getvalue())
 
         outer_zip = io.BytesIO()
         with zipfile.ZipFile(outer_zip, "w") as zf:
             zf.writestr("nested.zip", inner_zip.getvalue())
 
-        md = MarkDowner(limits=Limits(max_recursion_depth=0, enabled=True))
+        md = MarkDowner(limits=Limits(max_recursion_depth=1, enabled=True))
         result = md.convert(
             io.BytesIO(outer_zip.getvalue()),
             stream_info=StreamInfo(extension=".zip"),
         )
 
-        assert "nested.zip" not in result.metadata["processed_entries"]
+        assert "nested.zip" in result.metadata["processed_entries"]
+        assert any(
+            entry["name"] == "nested.zip!deeper.zip"
+            and entry["reason"] == "recursion_limit"
+            for entry in result.metadata["skipped_entries"]
+        )
         assert any("recursion limit" in warning.lower() for warning in result.warnings)
 
 
@@ -159,6 +174,12 @@ class TestLimitsFactory:
         assert limits.max_zip_entries == 50
         # Other values should be defaults
         assert limits.max_zip_total_uncompressed_bytes == 200 * 1024 * 1024
+
+    def test_create_custom_limits_preserves_zero_values(self):
+        """Explicit zero-valued limits should not be replaced by defaults."""
+        limits = create_custom_limits(max_recursion_depth=0)
+
+        assert limits.max_recursion_depth == 0
 
 
 if __name__ == "__main__":

@@ -84,13 +84,30 @@ def create_custom_limits(
 ) -> Limits:
     """Create a custom Limits instance with specified overrides."""
     return Limits(
-        max_input_bytes=max_input_bytes or DEFAULT_LIMITS.max_input_bytes,
-        max_zip_entries=max_zip_entries or DEFAULT_LIMITS.max_zip_entries,
+        max_input_bytes=(
+            max_input_bytes
+            if max_input_bytes is not None
+            else DEFAULT_LIMITS.max_input_bytes
+        ),
+        max_zip_entries=(
+            max_zip_entries
+            if max_zip_entries is not None
+            else DEFAULT_LIMITS.max_zip_entries
+        ),
         max_zip_total_uncompressed_bytes=(
             max_zip_total_uncompressed_bytes
-            or DEFAULT_LIMITS.max_zip_total_uncompressed_bytes
+            if max_zip_total_uncompressed_bytes is not None
+            else DEFAULT_LIMITS.max_zip_total_uncompressed_bytes
         ),
-        max_zip_entry_bytes=max_zip_entry_bytes or DEFAULT_LIMITS.max_zip_entry_bytes,
-        max_recursion_depth=max_recursion_depth or DEFAULT_LIMITS.max_recursion_depth,
+        max_zip_entry_bytes=(
+            max_zip_entry_bytes
+            if max_zip_entry_bytes is not None
+            else DEFAULT_LIMITS.max_zip_entry_bytes
+        ),
+        max_recursion_depth=(
+            max_recursion_depth
+            if max_recursion_depth is not None
+            else DEFAULT_LIMITS.max_recursion_depth
+        ),
         enabled=enabled,
     )

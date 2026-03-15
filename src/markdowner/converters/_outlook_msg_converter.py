@@ -64,6 +64,7 @@ class OutlookMsgConverter(DocumentConverter):
             ole = olefile.OleFileIO(tmp_path)
 
             lines = []
+            warnings = []
 
             # Try to get subject
             if ole.exists("__substg1.0_0037001F"):
@@ -71,8 +72,8 @@ class OutlookMsgConverter(DocumentConverter):
                 try:
                     subject = subject.decode("utf-16-le").rstrip("\x00")
                     lines.append(f"# {subject}\n")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    warnings.append(f"MSG subject skipped: {exc}")
 
             # Try to get sender
             if ole.exists("__substg1.0_0C1F001F"):
@@ -80,8 +81,8 @@ class OutlookMsgConverter(DocumentConverter):
                 try:
                     sender = sender.decode("utf-16-le").rstrip("\x00")
                     lines.append(f"**From**: {sender}\n")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    warnings.append(f"MSG sender skipped: {exc}")
 
             # Get body
             if ole.exists("__substg1.0_1000001F"):
@@ -89,18 +90,14 @@ class OutlookMsgConverter(DocumentConverter):
                 try:
                     body = body.decode("utf-16-le").rstrip("\x00")
                     lines.append(body)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    warnings.append(f"MSG body skipped: {exc}")
 
             ole.close()
             text = "\n".join(lines)
         except Exception as e:
-            return DocumentConverterResult(
-                text_content="",
-                metadata={"error": str(e)},
-                warnings=[f"MSG conversion failed: {e}"],
-            )
+            raise RuntimeError(f"MSG conversion failed: {e}") from e
         finally:
             os.unlink(tmp_path)
 
-        return DocumentConverterResult(text_content=text)
+        return DocumentConverterResult(text_content=text, warnings=warnings)

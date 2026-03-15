@@ -2,7 +2,7 @@
 name = "markdowner"
 version = "1.0.0"
 description = "CLI-first local document-to-Markdown converter"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [

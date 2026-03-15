@@ -73,11 +73,7 @@ class XlsConverter(DocumentConverter):
 
             text = "\n".join(sheets)
         except Exception as e:
-            return DocumentConverterResult(
-                text_content="",
-                metadata={"error": str(e)},
-                warnings=[f"XLS conversion failed: {e}"],
-            )
+            raise RuntimeError(f"XLS conversion failed: {e}") from e
         finally:
             os.unlink(tmp_path)
 

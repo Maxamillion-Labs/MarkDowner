@@ -9,6 +9,7 @@ from typing import BinaryIO
 from .._base_converter import DocumentConverter, DocumentConverterResult
 from .._stream_info import StreamInfo
 from .._exceptions import MissingDependencyException
+from ._zip_package_helpers import zip_has_members
 
 
 class XlsxConverter(DocumentConverter):
@@ -25,20 +26,13 @@ class XlsxConverter(DocumentConverter):
         extension = (stream_info.extension or "").lower()
 
         if "spreadsheet" in mimetype or "excel" in mimetype:
-            if "xlsx" in mimetype:
+            if "spreadsheetml" in mimetype or "xlsx" in mimetype:
                 return True
 
-        if extension in (".xlsx",):
-            return True
-
-        if extension not in (".xlsx",) and "xlsx" not in mimetype:
+        if extension != ".xlsx" and "xlsx" not in mimetype:
             return False
 
-        stream.seek(0)
-        magic = stream.read(2)
-        stream.seek(0)
-
-        return magic == b"PK"
+        return zip_has_members(stream, "[Content_Types].xml", "xl/workbook.xml")
 
     def convert(
         self,
@@ -76,11 +70,7 @@ class XlsxConverter(DocumentConverter):
 
             text = "\n".join(sheets)
         except Exception as e:
-            return DocumentConverterResult(
-                text_content="",
-                metadata={"error": str(e)},
-                warnings=[f"XLSX conversion failed: {e}"],
-            )
+            raise RuntimeError(f"XLSX conversion failed: {e}") from e
         finally:
             os.unlink(tmp_path)
 

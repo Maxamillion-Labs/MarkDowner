@@ -14,7 +14,6 @@ Supports the following workflows:
 """
 
 import argparse
-import io
 import sys
 from pathlib import Path
 
@@ -106,9 +105,12 @@ Examples:
             if sys.stdin.isatty():
                 parser.error("No input provided. Use filename or pipe from stdin.")
 
-            stdin_data = md._read_stream_with_limit(sys.stdin.buffer)
-
-            if stdin_data.getbuffer().nbytes == 0:
+            stdin_stream = md._coerce_stream_with_limit(sys.stdin.buffer)
+            current_pos = stdin_stream.tell()
+            stdin_stream.seek(0, 2)
+            stdin_size = stdin_stream.tell()
+            stdin_stream.seek(current_pos)
+            if stdin_size == 0:
                 parser.error("Empty stdin input")
 
             # Build stream info from hints
@@ -122,7 +124,7 @@ Examples:
                 charset=args.charset,
             )
 
-            result = md.convert(stdin_data, stream_info=stream_info)
+            result = md.convert_stream(stdin_stream, stream_info=stream_info)
 
     except MarkDownerException as e:
         print(f"Error: {e}", file=sys.stderr)

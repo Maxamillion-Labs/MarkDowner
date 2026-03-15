@@ -9,6 +9,7 @@ from typing import BinaryIO
 from .._base_converter import DocumentConverter, DocumentConverterResult
 from .._stream_info import StreamInfo
 from .._exceptions import MissingDependencyException
+from ._zip_package_helpers import zip_has_members
 
 
 class PptxConverter(DocumentConverter):
@@ -27,15 +28,10 @@ class PptxConverter(DocumentConverter):
         if "presentation" in mimetype or "powerpoint" in mimetype:
             return True
 
-        if extension in (".pptx",):
-            return True
+        if extension != ".pptx" and mimetype:
+            return False
 
-        # Check ZIP magic
-        stream.seek(0)
-        magic = stream.read(2)
-        stream.seek(0)
-
-        return magic == b"PK"
+        return zip_has_members(stream, "[Content_Types].xml", "ppt/presentation.xml")
 
     def convert(
         self,
@@ -74,11 +70,7 @@ class PptxConverter(DocumentConverter):
 
             text = "\n".join(slides)
         except Exception as e:
-            return DocumentConverterResult(
-                text_content="",
-                metadata={"error": str(e)},
-                warnings=[f"PPTX conversion failed: {e}"],
-            )
+            raise RuntimeError(f"PPTX conversion failed: {e}") from e
         finally:
             os.unlink(tmp_path)
 

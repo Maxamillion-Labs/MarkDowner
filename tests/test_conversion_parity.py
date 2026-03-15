@@ -93,7 +93,28 @@ class TestZipConversion:
 
         assert result.text_content.index("## a.txt") < result.text_content.index("## b.txt")
         assert "first" in result.text_content
+        assert result.metadata["entry_names"] == ["a.txt", "b.txt", "image.bin"]
         assert any("unsupported zip entry: image.bin" in warning.lower() for warning in result.warnings)
+
+    def test_zip_nested_text_content_is_extracted(self):
+        """Nested ZIP entries should be routed through the core converter."""
+        md = MarkDowner()
+        inner_archive = io.BytesIO()
+        with zipfile.ZipFile(inner_archive, "w") as zf:
+            zf.writestr("inner.txt", "nested text body")
+
+        outer_archive = io.BytesIO()
+        with zipfile.ZipFile(outer_archive, "w") as zf:
+            zf.writestr("nested.zip", inner_archive.getvalue())
+
+        result = md.convert(
+            io.BytesIO(outer_archive.getvalue()),
+            stream_info=StreamInfo(extension=".zip"),
+        )
+
+        assert "## nested.zip" in result.text_content
+        assert "inner.txt" in result.text_content
+        assert "nested text body" in result.text_content
 
 
 class TestImageConversion:
@@ -182,6 +203,30 @@ class TestCsvConversion:
         result = md.convert(io.BytesIO(csv), stream_info=stream_info)
         assert "a" in result.text_content
         assert "1" in result.text_content
+
+    def test_convert_utf8_csv_with_charset_hint(self):
+        """UTF-8 CSV should preserve non-ASCII content."""
+        md = MarkDowner()
+        csv = "name,city\nAndre,Munchen\nChloe,Montreal".encode("utf-8")
+        result = md.convert(
+            io.BytesIO(csv),
+            stream_info=StreamInfo(extension=".csv", charset="utf-8"),
+        )
+        assert "Andre" in result.text_content
+        assert "Montreal" in result.text_content
+        assert result.metadata["encoding"] == "utf-8"
+
+    def test_convert_cp1252_csv_with_fallback_warning(self):
+        """CSV conversion should fall back to cp1252 when utf-8 decoding fails."""
+        md = MarkDowner()
+        csv = "name,city\nAndre,Caf\xe9".encode("cp1252")
+        result = md.convert(
+            io.BytesIO(csv),
+            stream_info=StreamInfo(extension=".csv", charset="utf-8"),
+        )
+        assert "Caf" in result.text_content
+        assert result.metadata["encoding"] == "cp1252"
+        assert any("fallback encoding cp1252" in warning for warning in result.warnings)
 
 
 class TestExtensionInference:

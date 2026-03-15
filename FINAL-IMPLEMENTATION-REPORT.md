@@ -1,116 +1,21 @@
-# STATUS
+# Final Implementation Report
 
-Date: 2026-03-14
+## Fixed
 
-## Branch
+- Enforced incremental input-size checks for unseekable streams and reused the same stream-coercion path for CLI stdin and core stream conversion.
+- Made ZIP handling deterministic, archive-first, and metadata-rich, including nested warning propagation and recursion-limit reporting.
+- Kept image metadata extraction behind an ExifTool `>= 12.24` guard with warning coverage for valid, invalid, missing, and vulnerable version responses.
+- Preserved HTML structure through `markdownify` instead of plain text extraction.
+- Made accepted-converter failures terminal so malformed inputs return non-zero instead of silently falling through.
+- Tightened DOCX/PPTX/XLSX/EPUB ZIP-package detection to package signatures instead of generic `PK` acceptance.
+- Reworked CSV conversion to use built-in parsing with explicit encoding fallback warnings.
+- Added a real fixture corpus and aligned packaging/docs with the verified local state.
 
-### Command
-```bash
-git branch --show-current
-```
+## Remaining Risks
 
-### Output
-```text
-fix/review-remediation-v1
-```
-
-## Baseline (pre-fix)
-
-### Command
-```bash
-python3 -m pytest tests/ -q
-```
-
-### Output
-```text
-..........................                                        [100%]
-33 passed in 2.07s
-```
-
-### Command
-```bash
-python3 -m markdowner --version
-```
-
-### Output
-```text
-markdowner 1.0.0
-```
-
-### Command
-```bash
-python3 -m markdowner --help
-```
-
-### Output
-```text
-usage: markdowner [-h] [-o OUTPUT] [-x EXTENSION] [-m MIME_TYPE] [-c CHARSET]
-                  [--version]
-                  [filename]
-
-Convert local files and stdin to Markdown
-
-positional arguments:
-  filename              Input file path (omit for stdin)
-
-optional arguments:
-  -h, --help            show this help message and exit
-  -o OUTPUT, --output OUTPUT
-                        Output file path (default: stdout)
-  -x EXTENSION, --extension EXTENSION
-                        File extension hint for stdin (e.g., .pdf, .docx)
-  -m MIME_TYPE, --mime-type MIME_TYPE
-                        MIME type hint for stdin (e.g., application/pdf)
-  -c CHARSET, --charset CHARSET
-                        Character encoding hint (e.g., utf-8)
-  --version             show program's version number and exit
-
-Examples:
-  markdowner input.pdf                    Convert file to stdout
-  markdowner input.pdf -o output.md       Convert file to output file
-  cat input.pdf | markdowner -x .pdf      Convert stdin with extension hint
-  markdowner < input.pdf -x .pdf          Convert stdin with redirect
-        
-```
-
-## Phase A Validation
-
-### Command
-```bash
-python3 -m pytest tests/ -q
-```
-
-### Output
-```text
-...........................                                       [100%]
-34 passed in 1.96s
-```
-
-## Phase B Validation
-
-### Command
-```bash
-python3 -m pytest tests/ -q
-```
-
-### Output
-```text
-..................................                                [100%]
-41 passed in 2.14s
-```
-
-## Phase C Validation
-
-### Command
-```bash
-python3 -m pytest tests/ -q
-```
-
-### Output
-```text
-......................................                            [100%]
-45 passed in 2.06s
-```
+- Local validation did not execute DOCX, PPTX, XLSX, EPUB, or PDF content conversion end-to-end because required optional runtime packages were not installed in this environment.
+- CI configuration was updated, but the GitHub workflow itself was not executed locally.
+- Required checkpoint commits could not be created in this sandbox because Git could not create `.git/index.lock`.
 
 ## Optional Dependency Availability
 
@@ -137,23 +42,7 @@ ebooklib no ModuleNotFoundError
 pdfplumber no ModuleNotFoundError
 ```
 
-## Blocker Notes
-
-- Exact blocker: optional runtime packages for DOCX, PPTX, XLSX, EPUB, and PDF conversion were not installed locally.
-- Best-effort workaround: fixture-based package-signature tests were added for DOCX/XLSX/PDF, and local validation covered the routing/failure contract without fabricating end-to-end converter success.
-- Exact blocker: checkpoint `git commit` operations were blocked by the sandbox when Git attempted to create `.git/index.lock`.
-
-### Command
-```bash
-git add src/markdowner/__main__.py src/markdowner/_core.py tests/test_security_limits.py STATUS.md && git commit -m "fix: enforce streaming input limits + tests"
-```
-
-### Output
-```text
-fatal: Unable to create '/Users/max/Projects/MarkDowner/.git/index.lock': Operation not permitted
-```
-
-## Final Validation
+## Validation Outputs
 
 ### Command
 ```bash

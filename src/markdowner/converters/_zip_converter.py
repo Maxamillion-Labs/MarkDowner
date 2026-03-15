@@ -32,7 +32,6 @@ class ZipConverter(DocumentConverter):
         """Initialize ZIP converter."""
         self._markdowner = markdowner
         self._limits = limits or DEFAULT_LIMITS
-        self._current_depth = 0
 
     def accepts(
         self,
@@ -56,6 +55,10 @@ class ZipConverter(DocumentConverter):
         stream.seek(0)
 
         return magic == b"PK"
+
+    @staticmethod
+    def _prefix_entry_name(parent_name: str, child_name: str) -> str:
+        return f"{parent_name}!{child_name}"
 
     def convert(
         self,
@@ -87,6 +90,9 @@ class ZipConverter(DocumentConverter):
                 warnings = []
                 results = []
                 metadata = {
+                    "entry_names": [info.filename for info in entries if not info.is_dir()],
+                    "entry_count": entry_count,
+                    "total_uncompressed_bytes": total_size,
                     "files_processed": 0,
                     "processed_entries": [],
                     "skipped_entries": [],
@@ -104,7 +110,11 @@ class ZipConverter(DocumentConverter):
                         warning = f"Skipped entry too large: {name}"
                         warnings.append(warning)
                         metadata["skipped_entries"].append(
-                            {"name": name, "reason": "entry_too_large"}
+                            {
+                                "name": name,
+                                "reason": "entry_too_large",
+                                "size": info.file_size,
+                            }
                         )
                         continue
 
@@ -114,7 +124,7 @@ class ZipConverter(DocumentConverter):
                         warning = f"Failed to read ZIP entry {name}: {exc}"
                         warnings.append(warning)
                         metadata["failed_entries"].append(
-                            {"name": name, "reason": "read_error"}
+                            {"name": name, "reason": "read_error", "error": str(exc)}
                         )
                         continue
 
@@ -122,6 +132,11 @@ class ZipConverter(DocumentConverter):
                     sub_stream_info = StreamInfo(
                         filename=name,
                         extension=ext.lower() or None,
+                        mimetype=(
+                            "application/zip"
+                            if ext.lower() == ".zip"
+                            else None
+                        ),
                     )
 
                     if ext.lower() == ".zip":
@@ -130,7 +145,11 @@ class ZipConverter(DocumentConverter):
                             warning = f"Skipped nested archive at recursion limit: {name}"
                             warnings.append(warning)
                             metadata["skipped_entries"].append(
-                                {"name": name, "reason": "recursion_limit"}
+                                {
+                                    "name": name,
+                                    "reason": "recursion_limit",
+                                    "depth": next_depth,
+                                }
                             )
                             continue
                     else:
@@ -158,21 +177,52 @@ class ZipConverter(DocumentConverter):
                         warning = f"Failed to convert ZIP entry {name}: {exc}"
                         warnings.append(warning)
                         metadata["failed_entries"].append(
-                            {"name": name, "reason": "conversion_failed"}
+                            {
+                                "name": name,
+                                "reason": "conversion_failed",
+                                "error": str(exc),
+                            }
                         )
                         continue
                     except Exception as exc:
                         warning = f"Failed to convert ZIP entry {name}: {exc}"
                         warnings.append(warning)
                         metadata["failed_entries"].append(
-                            {"name": name, "reason": "conversion_failed"}
+                            {
+                                "name": name,
+                                "reason": "conversion_failed",
+                                "error": str(exc),
+                            }
                         )
                         continue
 
                     entry_lines = [f"## {name}", "", result.text_content]
                     if result.warnings:
+                        warnings.extend(
+                            f"{name}: {warning}" for warning in result.warnings
+                        )
                         entry_lines.extend(["", "Warnings:"])
                         entry_lines.extend(f"- {warning}" for warning in result.warnings)
+
+                    for child_entry in result.metadata.get("processed_entries", []):
+                        metadata["processed_entries"].append(
+                            self._prefix_entry_name(name, child_entry)
+                        )
+                    for child_entry in result.metadata.get("skipped_entries", []):
+                        child_copy = dict(child_entry)
+                        child_copy["name"] = self._prefix_entry_name(
+                            name,
+                            child_entry["name"],
+                        )
+                        metadata["skipped_entries"].append(child_copy)
+                    for child_entry in result.metadata.get("failed_entries", []):
+                        child_copy = dict(child_entry)
+                        child_copy["name"] = self._prefix_entry_name(
+                            name,
+                            child_entry["name"],
+                        )
+                        metadata["failed_entries"].append(child_copy)
+
                     results.append("\n".join(entry_lines).strip())
                     metadata["processed_entries"].append(name)
                     metadata["files_processed"] += 1

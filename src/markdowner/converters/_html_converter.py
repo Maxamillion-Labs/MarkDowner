@@ -85,6 +85,8 @@ class HtmlConverter(DocumentConverter):
             heading_style="ATX",
             bullets="-",
             strip=["script", "style"],
+            autolinks=True,
+            strong_em_symbol="*",
         ).strip()
 
         return DocumentConverterResult(text_content=text)

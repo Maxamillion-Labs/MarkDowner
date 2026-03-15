@@ -6,9 +6,13 @@
 
 from typing import BinaryIO
 
+from bs4 import BeautifulSoup
+from markdownify import markdownify as to_markdown
+
 from .._base_converter import DocumentConverter, DocumentConverterResult
 from .._stream_info import StreamInfo
 from .._exceptions import MissingDependencyException
+from ._zip_package_helpers import zip_has_members
 
 
 class EpubConverter(DocumentConverter):
@@ -27,15 +31,14 @@ class EpubConverter(DocumentConverter):
         if mimetype == "application/epub+zip":
             return True
 
-        if extension == ".epub":
-            return True
+        if extension != ".epub" and mimetype:
+            return False
 
-        # Check ZIP magic (epub is a zip)
-        stream.seek(0)
-        magic = stream.read(2)
-        stream.seek(0)
-
-        return magic == b"PK"
+        return zip_has_members(
+            stream,
+            "mimetype",
+            "META-INF/container.xml",
+        )
 
     def convert(
         self,
@@ -45,10 +48,10 @@ class EpubConverter(DocumentConverter):
     ) -> DocumentConverterResult:
         """Convert EPUB to Markdown."""
         try:
-            from ebook_lib import EBook
+            from ebooklib import ITEM_DOCUMENT, epub
         except ImportError:
             raise MissingDependencyException(
-                "ebook-lib is required for EPUB conversion. Install with: pip install markdowner[epub]"
+                "ebooklib is required for EPUB conversion. Install with: pip install markdowner[epub]"
             )
 
         # Save to temp file
@@ -61,39 +64,47 @@ class EpubConverter(DocumentConverter):
             tmp_path = tmp.name
 
         try:
-            book = EBook(tmp_path)
+            book = epub.read_epub(tmp_path)
+            warnings = []
 
             lines = []
-            lines.append(f"# {book.title or 'Untitled'}\n")
+            title = ""
+            authors = []
+            try:
+                title_meta = book.get_metadata("DC", "title")
+                if title_meta:
+                    title = title_meta[0][0]
+                author_meta = book.get_metadata("DC", "creator")
+                authors = [item[0] for item in author_meta]
+            except Exception as exc:
+                warnings.append(f"EPUB metadata unavailable: {exc}")
 
-            if book.author:
-                lines.append(f"**Author**: {book.author}\n")
+            lines.append(f"# {title or 'Untitled'}\n")
+
+            if authors:
+                lines.append(f"**Author**: {', '.join(authors)}\n")
 
             lines.append("\n## Content\n")
 
-            # Extract text from chapters
-            if hasattr(book, 'spine') and book.spine:
-                for item in book.spine:
-                    if hasattr(book, 'get_item') and callable(book.get_item):
-                        try:
-                            item_obj = book.get_item(item[0])
-                            if item_obj and hasattr(item_obj, 'get_content'):
-                                content = item_obj.get_content()
-                                if isinstance(content, bytes):
-                                    content = content.decode('utf-8', errors='ignore')
-                                lines.append(content)
-                                lines.append("\n\n")
-                        except Exception:
-                            pass
+            for item in book.get_items():
+                if item.get_type() != ITEM_DOCUMENT:
+                    continue
+                try:
+                    content = item.get_content().decode("utf-8", errors="replace")
+                    soup = BeautifulSoup(content, "html.parser")
+                    for element in soup(["script", "style"]):
+                        element.decompose()
+                    chapter_text = to_markdown(str(soup), heading_style="ATX").strip()
+                    if chapter_text:
+                        lines.append(chapter_text)
+                        lines.append("\n")
+                except Exception as exc:
+                    warnings.append(f"EPUB content skipped: {exc}")
 
             text = "\n".join(lines)
         except Exception as e:
-            return DocumentConverterResult(
-                text_content="",
-                metadata={"error": str(e)},
-                warnings=[f"EPUB conversion failed: {e}"],
-            )
+            raise RuntimeError(f"EPUB conversion failed: {e}") from e
         finally:
             os.unlink(tmp_path)
 
-        return DocumentConverterResult(text_content=text)
+        return DocumentConverterResult(text_content=text, warnings=warnings)

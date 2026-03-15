@@ -65,11 +65,7 @@ class PdfConverter(DocumentConverter):
             try:
                 text = extract_text(tmp_path)
             except PDFSyntaxError as e:
-                return DocumentConverterResult(
-                    text_content="",
-                    metadata={"error": f"PDF parsing error: {e}"},
-                    warnings=["PDF could not be parsed"],
-                )
+                raise RuntimeError(f"PDF parsing error: {e}") from e
         finally:
             os.unlink(tmp_path)
 

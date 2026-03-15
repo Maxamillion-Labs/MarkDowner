@@ -9,6 +9,7 @@ from typing import BinaryIO
 from .._base_converter import DocumentConverter, DocumentConverterResult
 from .._stream_info import StreamInfo
 from .._exceptions import MissingDependencyException
+from ._zip_package_helpers import zip_has_members
 
 
 class DocxConverter(DocumentConverter):
@@ -27,15 +28,10 @@ class DocxConverter(DocumentConverter):
         if mimetype in ("application/vnd.openxmlformats-officedocument.wordprocessingml.document",):
             return True
 
-        if extension == ".docx":
-            return True
+        if extension != ".docx" and mimetype:
+            return False
 
-        # Check ZIP magic (docx is a zip)
-        stream.seek(0)
-        magic = stream.read(2)
-        stream.seek(0)
-
-        return magic == b"PK"
+        return zip_has_members(stream, "[Content_Types].xml", "word/document.xml")
 
     def convert(
         self,
@@ -65,11 +61,7 @@ class DocxConverter(DocumentConverter):
                 result = mammoth.convert_to_markdown(docx_file)
                 text = result.value
         except Exception as e:
-            return DocumentConverterResult(
-                text_content="",
-                metadata={"error": str(e)},
-                warnings=[f"DOCX conversion failed: {e}"],
-            )
+            raise RuntimeError(f"DOCX conversion failed: {e}") from e
         finally:
             os.unlink(tmp_path)
 

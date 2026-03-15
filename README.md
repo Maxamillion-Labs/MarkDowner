@@ -1,82 +1,51 @@
 # MarkDowner
 
-**MarkDowner** is a CLI-first, local-only document-to-Markdown converter. It converts common file formats to Markdown reliably, with minimal attack surface and no server or network extras.
+MarkDowner is a local CLI for converting files and stdin streams to Markdown.
 
-## Features
+## Verified Commands
 
-- **Local-only conversion** - No network calls, no server mode
-- **Security-first** - Input size limits, ZIP entry limits, recursion depth limits
-- **CLI-first design** - Simple, predictable command-line interface
-- **Broad format support** - PDF, DOCX, PPTX, XLSX, HTML, CSV, EPUB, MSG, images, audio, and more
-
-## Installation
-
+### Command
 ```bash
-# Basic installation
-pip install markdowner
-
-# With all format support
-pip install markdowner[all]
-
-# Or install in development mode
-pip install -e ".[all]"
+python3 -m markdowner --version
 ```
 
-## Quick Start
-
-```bash
-# Convert a file to stdout
-markdowner document.pdf
-
-# Convert a file to a specific output
-markdowner document.pdf -o output.md
-
-# Convert from stdin with extension hint
-cat document.pdf | markdowner -x .pdf
-
-# Convert from stdin with redirect
-markdowner < document.pdf -x .pdf
-
-# Show version
-markdowner --version
+### Output
+```text
+markdowner 1.0.0
 ```
 
-## Supported Formats
+### Command
+```bash
+python3 -m markdowner sample.txt
+```
 
-| Format | Extension | Status |
-|--------|-----------|--------|
-| PDF | `.pdf` | ✅ |
-| DOCX | `.docx` | ✅ |
-| PPTX | `.pptx` | ✅ |
-| XLSX | `.xlsx` | ✅ |
-| XLS | `.xls` | ✅ |
-| HTML | `.html`, `.htm` | ✅ |
-| CSV | `.csv` | ✅ |
-| Plain Text | `.txt` | ✅ |
-| EPUB | `.epub` | ✅ |
-| Outlook MSG | `.msg` | ✅ |
-| Images | `.jpg`, `.png`, etc. | ✅ |
-| Audio | `.mp3`, `.wav`, etc. | ✅ |
-| ZIP | `.zip` | ✅ |
+### Output
+```text
+Sample text for CLI validation.
+```
 
-## Security
+## Core Behaviors Verified Locally
 
-MarkDowner includes built-in security limits:
+- Plain text file conversion
+- Stdin conversion with `-x`
+- Output file writing with `-o`
+- HTML to Markdown structure retention
+- ZIP routing, deterministic ordering, and recursion-limit warnings
+- Input-size limit enforcement for seekable and unseekable input
+- CSV decoding with UTF-8 and cp1252 fallback handling
 
-- **Max input size**: 100MB by default
-- **Max ZIP entries**: 1,000 by default
-- **Max ZIP uncompressed size**: 200MB by default
-- **Max ZIP entry size**: 50MB by default
-- **Max recursion depth**: 3 levels by default
+## Optional Converter Dependencies
 
-These can be customized when using MarkDowner programmatically.
+- `docx`: `mammoth`, `lxml`
+- `pptx`: `python-pptx`
+- `xlsx`: `pandas`, `openpyxl`
+- `xls`: `pandas`, `xlrd`
+- `pdf`: `pdfminer.six`, `pdfplumber`
+- `epub`: `ebooklib`
+- `outlook`: `olefile`
 
-## Requirements
+## Repository Evidence
 
-- Python 3.10+
-- Core dependencies: beautifulsoup4, markdownify, magika, charset-normalizer, defusedxml
-- Optional dependencies for specific formats (see `pyproject.toml`)
-
-## License
-
-MIT License - see LICENSE file for details.
+- Test and CLI validation output: `STATUS.md`
+- Fixture corpus: `tests/test_files/`
+- Final implementation summary: `FINAL-IMPLEMENTATION-REPORT.md`

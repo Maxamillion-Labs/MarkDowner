@@ -79,6 +79,17 @@ class MarkDowner:
         self._converters: List[ConverterRegistration] = []
         self._register_builtins()
 
+    def _coerce_stream_with_limit(
+        self,
+        stream: BinaryIO,
+        *,
+        chunk_size: int = 8192,
+    ) -> BinaryIO:
+        """Return a seekable stream, buffering unseekable input with limit checks."""
+        if stream.seekable():
+            return stream
+        return self._read_stream_with_limit(stream, chunk_size=chunk_size)
+
     def _read_stream_with_limit(
         self,
         stream: BinaryIO,
@@ -90,7 +101,12 @@ class MarkDowner:
         total_bytes = 0
 
         while True:
-            chunk = stream.read(chunk_size)
+            read_size = chunk_size
+            if self._limits.enabled:
+                remaining = self._limits.max_input_bytes - total_bytes
+                read_size = min(chunk_size, max(remaining, 0) + 1)
+
+            chunk = stream.read(read_size)
             if not chunk:
                 break
 
@@ -148,10 +164,7 @@ class MarkDowner:
         self.register_converter(DocxConverter())
         self.register_converter(ImageConverter())
         self.register_converter(AudioConverter())
-        self.register_converter(
-            ZipConverter(markdowner=self, limits=self._limits),
-            priority=PRIORITY_GENERIC_FILE_FORMAT,
-        )
+        self.register_converter(ZipConverter(markdowner=self, limits=self._limits))
 
     def convert(
         self,
@@ -248,8 +261,7 @@ class MarkDowner:
             )
 
         # Check if stream is seekable, if not load into memory incrementally
-        if not stream.seekable():
-            stream = self._read_stream_with_limit(stream)
+        stream = self._coerce_stream_with_limit(stream)
 
         # Check input size
         if self._limits.enabled:
@@ -276,6 +288,7 @@ class MarkDowner:
     ) -> DocumentConverterResult:
         """Internal conversion method."""
         result: Optional[DocumentConverterResult] = None
+        accept_warnings: List[str] = []
 
         # Track failed conversion attempts
         failed_attempts: List[FailedConversionAttempt] = []
@@ -304,9 +317,10 @@ class MarkDowner:
                     )
                 except NotImplementedError:
                     pass
-                except Exception:
-                    # Log but continue
-                    pass
+                except Exception as exc:
+                    accept_warnings.append(
+                        f"{converter.name} accept check failed: {exc}"
+                    )
 
                 # Reset position after accepts check
                 file_stream.seek(cur_pos)
@@ -327,6 +341,7 @@ class MarkDowner:
                                 exc_info=sys.exc_info(),
                             )
                         )
+                        raise FileConversionException(attempts=failed_attempts) from e
                     finally:
                         file_stream.seek(cur_pos)
 
@@ -349,6 +364,7 @@ class MarkDowner:
                         [line.rstrip() for line in re.split(r"\r?\n", result.text_content)]
                     )
                     result.text_content = re.sub(r"\n{3,}", "\n\n", result.text_content)
+                    result.warnings = accept_warnings + result.warnings
                     return result
 
         # Report failures

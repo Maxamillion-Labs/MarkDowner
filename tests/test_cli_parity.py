@@ -143,5 +143,20 @@ def test_cli_oversized_stdin_fails_fast():
     assert "exceeds maximum allowed" in result.stderr.lower()
 
 
+def test_cli_malformed_zip_returns_non_zero(tmp_path):
+    """Malformed ZIP input should not be reported as a successful conversion."""
+    bad_zip = tmp_path / "bad.zip"
+    bad_zip.write_bytes(b"PK\x03\x04not-a-real-zip")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "markdowner", str(bad_zip)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "conversion failed" in result.stderr.lower() or "bad zip file" in result.stderr.lower()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
