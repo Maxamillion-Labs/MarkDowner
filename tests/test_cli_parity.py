@@ -4,12 +4,16 @@
 
 """Test CLI parity - verify all CLI workflows work correctly."""
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 from unittest import mock
 
 import pytest
+
+
+FIXTURES = Path(__file__).parent / "test_files"
 
 
 def test_cli_file_to_stdout(tmp_path):
@@ -103,6 +107,42 @@ def test_cli_help():
 
     assert result.returncode == 0
     assert "usage:" in result.stdout.lower()
+
+
+@pytest.mark.skipif(shutil.which("pandoc") is None, reason="pandoc not installed")
+def test_cli_rtf_file_does_not_misroute_to_csv():
+    """RTF file conversion should not produce a raw-RFT markdown table."""
+    fixture = FIXTURES / "rtf_csv_like_sample.rtf"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "markdowner", str(fixture)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout
+    assert not result.stdout.startswith("| {\\rtf")
+    assert "{\\rtf" not in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("pandoc") is None, reason="pandoc not installed")
+def test_cli_rtf_stdin_with_extension_does_not_misroute_to_csv():
+    """RTF stdin conversion should honor the .rtf hint and avoid CSV fallback."""
+    fixture = FIXTURES / "rtf_csv_like_sample.rtf"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "markdowner", "-x", ".rtf"],
+        input=fixture.read_bytes(),
+        capture_output=True,
+        text=False,
+    )
+
+    assert result.returncode == 0
+    output = result.stdout.decode("utf-8")
+    assert output
+    assert not output.startswith("| {\\rtf")
+    assert "{\\rtf" not in output
 
 
 def test_cli_missing_file():

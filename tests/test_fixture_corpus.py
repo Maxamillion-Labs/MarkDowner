@@ -19,6 +19,9 @@ FIXTURES = Path(__file__).parent / "test_files"
 def test_fixture_directory_is_populated():
     names = sorted(path.name for path in FIXTURES.iterdir())
     assert names == [
+        "rtf",
+        "rtf_csv_like_sample.rtf",
+        "rtf_expected",
         "sample.csv",
         "sample.docx",
         "sample.html",
