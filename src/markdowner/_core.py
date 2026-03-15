@@ -21,7 +21,15 @@ from typing import Any, BinaryIO, List, Optional, Union
 import magika
 import charset_normalizer
 
-from ._base_converter import DocumentConverter, DocumentConverterResult
+from ._base_converter import (
+    DocumentConverter,
+    DocumentConverterResult,
+    PRIORITY_ARCHIVE,
+    PRIORITY_CSV,
+    PRIORITY_DOC_SPECIFIC,
+    PRIORITY_GENERIC,
+    PRIORITY_RTF,
+)
 from ._bounded_stream import BoundedStream
 from ._exceptions import (
     FileConversionException,
@@ -33,11 +41,6 @@ from ._exceptions import (
 )
 from ._limits import Limits, DEFAULT_LIMITS
 from ._stream_info import StreamInfo
-
-
-# Priority constants
-PRIORITY_SPECIFIC_FILE_FORMAT = 0.0
-PRIORITY_GENERIC_FILE_FORMAT = 10.0
 
 
 @dataclass(frozen=True)
@@ -147,30 +150,64 @@ class MarkDowner:
             RtfConverter,
         )
 
-        # Register converters - later registrations appear first in priority order
-        # Generic converters first (higher priority value = tried later)
+        # Register converters with explicit precedence.
         self.register_converter(
             PlainTextConverter(),
-            priority=PRIORITY_GENERIC_FILE_FORMAT,
+            priority=PRIORITY_GENERIC,
         )
         self.register_converter(
             HtmlConverter(),
-            priority=PRIORITY_GENERIC_FILE_FORMAT,
+            priority=PRIORITY_GENERIC,
         )
 
-        # Specific format converters (lower priority = tried first)
-        self.register_converter(RtfConverter())
-        self.register_converter(CsvConverter())
-        self.register_converter(EpubConverter(limits=self._limits))
-        self.register_converter(OutlookMsgConverter())
-        self.register_converter(PdfConverter())
-        self.register_converter(PptxConverter(limits=self._limits))
-        self.register_converter(XlsConverter())
-        self.register_converter(XlsxConverter(limits=self._limits))
-        self.register_converter(DocxConverter(limits=self._limits))
-        self.register_converter(ImageConverter())
-        self.register_converter(AudioConverter())
-        self.register_converter(ZipConverter(markdowner=self, limits=self._limits))
+        self.register_converter(
+            ZipConverter(markdowner=self, limits=self._limits),
+            priority=PRIORITY_ARCHIVE,
+        )
+        self.register_converter(
+            RtfConverter(),
+            priority=PRIORITY_RTF,
+        )
+        self.register_converter(
+            EpubConverter(limits=self._limits),
+            priority=PRIORITY_DOC_SPECIFIC,
+        )
+        self.register_converter(
+            OutlookMsgConverter(),
+            priority=PRIORITY_DOC_SPECIFIC,
+        )
+        self.register_converter(
+            PdfConverter(),
+            priority=PRIORITY_DOC_SPECIFIC,
+        )
+        self.register_converter(
+            PptxConverter(limits=self._limits),
+            priority=PRIORITY_DOC_SPECIFIC,
+        )
+        self.register_converter(
+            XlsConverter(),
+            priority=PRIORITY_DOC_SPECIFIC,
+        )
+        self.register_converter(
+            XlsxConverter(limits=self._limits),
+            priority=PRIORITY_DOC_SPECIFIC,
+        )
+        self.register_converter(
+            DocxConverter(limits=self._limits),
+            priority=PRIORITY_DOC_SPECIFIC,
+        )
+        self.register_converter(
+            ImageConverter(),
+            priority=PRIORITY_DOC_SPECIFIC,
+        )
+        self.register_converter(
+            AudioConverter(),
+            priority=PRIORITY_DOC_SPECIFIC,
+        )
+        self.register_converter(
+            CsvConverter(),
+            priority=PRIORITY_CSV,
+        )
 
     def convert(
         self,
@@ -390,7 +427,7 @@ class MarkDowner:
         self,
         converter: DocumentConverter,
         *,
-        priority: float = PRIORITY_SPECIFIC_FILE_FORMAT,
+        priority: float = PRIORITY_DOC_SPECIFIC,
     ) -> None:
         """Register a converter with a given priority."""
         self._converters.insert(

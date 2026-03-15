@@ -2,25 +2,30 @@
 #
 # SPDX-License-Identifier: MIT
 
-"""RTF converter using pandoc."""
+"""RTF converter using native parser."""
 
-import subprocess
 from typing import BinaryIO
 
 from .._base_converter import (
     DocumentConverter,
     DocumentConverterResult,
-    PRIORITY_SPECIFIC_FILE_FORMAT,
+    PRIORITY_RTF,
 )
-from .._exceptions import MissingDependencyException
 from .._stream_info import StreamInfo
+from ._rtf_parser import RtfParser
+from ._rtf_renderer import RtfRenderer
 
 
 class RtfConverter(DocumentConverter):
-    """Converter for RTF files using pandoc."""
+    """Converter for RTF files using native parser."""
 
-    priority = PRIORITY_SPECIFIC_FILE_FORMAT
-    DEFAULT_TIMEOUT = 30
+    priority = PRIORITY_RTF
+
+    @staticmethod
+    def _has_rtf_header(chunk: bytes) -> bool:
+        if chunk.startswith(b"\xef\xbb\xbf"):
+            chunk = chunk[3:]
+        return chunk.lstrip().startswith(b"{\\rtf")
 
     def accepts(
         self,
@@ -39,10 +44,10 @@ class RtfConverter(DocumentConverter):
             return True
 
         stream.seek(0)
-        chunk = stream.read(8)
+        chunk = stream.read(64)
         stream.seek(0)
 
-        if chunk.startswith(b"{\\rtf"):
+        if self._has_rtf_header(chunk):
             return True
 
         return False
@@ -53,51 +58,31 @@ class RtfConverter(DocumentConverter):
         stream_info: StreamInfo,
         **kwargs
     ) -> DocumentConverterResult:
-        """Convert RTF to Markdown using pandoc."""
-        import shutil
-
-        pandoc_path = shutil.which("pandoc")
-        if pandoc_path is None:
-            raise MissingDependencyException(
-                "pandoc is required for RTF conversion. Install with: brew install pandoc"
-            )
-
+        """Convert RTF to Markdown using native parser."""
         stream.seek(0)
         rtf_content = stream.read()
-        stream.seek(0)
+
+        if not self._has_rtf_header(rtf_content[:256]):
+            return DocumentConverterResult(
+                text_content="",
+                metadata={"error": "RTF native conversion failed: invalid RTF header"},
+            )
 
         try:
-            result = subprocess.run(
-                [
-                    pandoc_path,
-                    "-f", "rtf",
-                    "-t", "gfm",
-                    "--wrap=none",
-                    "--markdown-headings=atx",
-                ],
-                input=rtf_content,
-                capture_output=True,
-                timeout=self.DEFAULT_TIMEOUT,
-                check=False,
+            parser = RtfParser(rtf_content)
+            doc = parser.parse()
+            renderer = RtfRenderer(doc)
+            markdown_content = renderer.render()
+
+            return DocumentConverterResult(
+                text_content=markdown_content,
+                metadata={"converter": "native-rtf"},
             )
-        except FileNotFoundError:
-            raise MissingDependencyException(
-                "pandoc is required for RTF conversion. Install with: brew install pandoc"
-            )
-        except subprocess.TimeoutExpired:
+
+        except Exception as e:
             return DocumentConverterResult(
                 text_content="",
-                metadata={"error": "RTF conversion timed out (timeout)"},
+                metadata={
+                    "error": f"RTF native conversion failed: {type(e).__name__}: {str(e)}"
+                },
             )
-
-        if result.returncode != 0:
-            stderr = result.stderr.decode("utf-8", errors="replace")
-            truncated_stderr = stderr[:497] if len(stderr) > 497 else stderr
-            return DocumentConverterResult(
-                text_content="",
-                metadata={"error": f"RTF conversion failed: {truncated_stderr}"},
-            )
-
-        markdown_content = result.stdout.decode("utf-8", errors="replace")
-
-        return DocumentConverterResult(text_content=markdown_content)

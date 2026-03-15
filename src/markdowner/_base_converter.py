@@ -16,9 +16,16 @@ from typing import Any, BinaryIO, List, Optional
 from ._stream_info import StreamInfo
 
 
-# Priority constants - lower values are tried first
-PRIORITY_SPECIFIC_FILE_FORMAT = 0.0  # e.g., .docx, .pdf, .xlsx
-PRIORITY_GENERIC_FILE_FORMAT = 10.0  # Catch-all for text/* mimetypes
+# Priority constants - lower values are tried first.
+PRIORITY_ARCHIVE = -20.0
+PRIORITY_RTF = -15.0
+PRIORITY_DOC_SPECIFIC = -10.0
+PRIORITY_CSV = -5.0
+PRIORITY_GENERIC = 10.0
+
+# Backward-compatible aliases for existing converters.
+PRIORITY_SPECIFIC_FILE_FORMAT = PRIORITY_DOC_SPECIFIC
+PRIORITY_GENERIC_FILE_FORMAT = PRIORITY_GENERIC
 
 
 @dataclass
