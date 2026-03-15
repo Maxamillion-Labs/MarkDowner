@@ -23,6 +23,7 @@ def test_fixture_directory_is_populated():
         "sample.docx",
         "sample.html",
         "sample.pdf",
+        "sample.rtf",
         "sample.txt",
         "sample.xlsx",
         "sample.zip",
