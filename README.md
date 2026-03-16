@@ -86,8 +86,6 @@ pip install -e ".[all]" tabulate
 
 ### 4) Install external tools
 
-RTF conversion is native and does not require Pandoc.
-
 Recommended for richer image metadata handling:
 
 ```bash
