@@ -1,18 +1,20 @@
-# MarkDowner
+# MarkDowner 🤖📄➡️📝
 
-A local-first, security-conscious CLI that converts documents and streams to Markdown.
+A **local-only, reliable, security-focused** CLI that converts documents and streams to Markdown for automation and AI workflows.
 
-MarkDowner started as a focused fork concept and is now an implemented, test-covered tool for multi-format conversion with one consistent command surface.
+MarkDowner is forked from Microsoft’s **MarkItDown** concept and reshaped for a different mission: deterministic local execution, stronger safety defaults, and cleaner behavior for pipelines/agents.
 
 ---
 
-## Why MarkDowner
+## Why MarkDowner 🚀
 
-- **One CLI for many formats** (PDF, Office docs, HTML, CSV, ZIP, RTF, etc.)
-- **Local-first by default** (no built-in remote URL fetch pipeline)
-- **Security controls baked in** (input limits, ZIP limits, recursion limits, unsafe source rejection)
-- **Pipeline-friendly UX** (file input, stdin, stdout, output file)
-- **RTF support via native parser/renderer** (no Pandoc required for `.rtf`)
+Why fork away from MarkItDown-style defaults:
+- 🔒 **Local-only trust boundary** — no built-in remote fetch path in the core flow
+- 🛡️ **Security controls first** — input limits, ZIP limits, recursion limits, unsafe source rejection
+- ⚙️ **Automation-friendly behavior** — stable CLI for file input, stdin/stdout, and output files
+- 🤖 **AI workflow ready** — predictable markdown conversion for agent/tool pipelines
+- 🧠 **Native RTF path** — no Pandoc dependency for `.rtf`
+- 📦 **One CLI for many formats** — PDF, Office docs, HTML, CSV, ZIP, MSG, and more
 
 ---
 
@@ -21,9 +23,10 @@ MarkDowner started as a focused fork concept and is now an implemented, test-cov
 - Package: `markdowner`
 - Version: `1.0.0`
 - Python: `>=3.10`
+- Positioning: **local-only, reliable, secure conversion engine**
 - Test status (project `.venv`):
-  - `python -m pytest tests/ -q`
-  - **72 passed**
+  - `.venv/bin/python -m pytest -q`
+  - **145 passed**
 
 ---
 
