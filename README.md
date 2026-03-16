@@ -13,7 +13,6 @@ Why fork away from MarkItDown-style defaults:
 - 🛡️ **Security controls first** — input limits, ZIP limits, recursion limits, unsafe source rejection
 - ⚙️ **Automation-friendly behavior** — stable CLI for file input, stdin/stdout, and output files
 - 🤖 **AI workflow ready** — predictable markdown conversion for agent/tool pipelines
-- 🧠 **Native RTF path** — no Pandoc dependency for `.rtf`
 - 📦 **One CLI for many formats** — PDF, Office docs, HTML, CSV, ZIP, MSG, and more
 
 ---
