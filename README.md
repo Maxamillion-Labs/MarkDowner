@@ -86,10 +86,33 @@ pip install -e ".[all]" tabulate
 
 ### 4) Install external tools
 
-Recommended for richer image metadata handling:
+Recommended for richer image metadata handling: install **ExifTool**.
+
+#### macOS (Homebrew)
 
 ```bash
 brew install exiftool
+```
+
+#### Linux
+
+**Debian/Ubuntu**
+```bash
+sudo apt-get update
+sudo apt-get install -y libimage-exiftool-perl
+```
+
+**Fedora/RHEL**
+```bash
+sudo dnf install -y perl-Image-ExifTool
+```
+
+#### Windows
+
+Install ExifTool and ensure it is on `PATH`, then verify:
+
+```powershell
+exiftool -ver
 ```
 
 ---
