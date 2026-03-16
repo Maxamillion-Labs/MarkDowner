@@ -4,6 +4,8 @@
 
 """Test RTF lexer."""
 
+import time
+
 import pytest
 
 from markdowner.converters._rtf_lexer import RtfLexer, Token, TokenType, tokenize_rtf
@@ -77,3 +79,14 @@ class TestRtfLexer:
         tokens = tokenize_rtf(b"test")
         assert len(tokens) >= 1
         assert tokens[0].type == TokenType.TEXT
+
+    def test_large_plain_text_tokenization_stays_bounded(self):
+        """Large unformatted payloads should tokenize without per-byte backtracking."""
+        payload = b"A" * (512 * 1024)
+        started = time.perf_counter()
+        tokens = tokenize_rtf(payload)
+        elapsed = time.perf_counter() - started
+
+        assert tokens[0].type == TokenType.TEXT
+        assert tokens[0].value == "A" * (512 * 1024)
+        assert elapsed < 1.0

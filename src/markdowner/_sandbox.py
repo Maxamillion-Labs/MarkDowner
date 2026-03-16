@@ -16,6 +16,7 @@ from ._exceptions import MarkDownerException
 
 DEFAULT_PARSER_TIMEOUT_SECONDS = 30
 DEFAULT_PARSER_MEMORY_LIMIT_BYTES = 512 * 1024 * 1024
+TERMINATE_GRACE_SECONDS = 1
 
 
 class ParserSandboxException(MarkDownerException):
@@ -98,17 +99,32 @@ def run_in_subprocess(
         args=(result_queue, func, args, kwargs, sandbox_limits.memory_limit_bytes),
     )
     process.start()
-    process.join(timeout=sandbox_limits.timeout_seconds)
-
-    if process.is_alive():
-        process.terminate()
-        process.join()
-        raise ParserSandboxTimeout(sandbox_limits.timeout_seconds)
 
     try:
-        status, payload = result_queue.get_nowait()
+        status, payload = result_queue.get(timeout=sandbox_limits.timeout_seconds)
     except queue.Empty as exc:
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=TERMINATE_GRACE_SECONDS)
+            if process.is_alive():
+                process.kill()
+                process.join()
+            raise ParserSandboxTimeout(sandbox_limits.timeout_seconds) from exc
         raise ParserSandboxExited(process.exitcode) from exc
+    finally:
+        process.join(timeout=TERMINATE_GRACE_SECONDS)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=TERMINATE_GRACE_SECONDS)
+            if process.is_alive():
+                process.kill()
+                process.join()
+        close_queue = getattr(result_queue, "close", None)
+        if close_queue is not None:
+            close_queue()
+        join_thread = getattr(result_queue, "join_thread", None)
+        if join_thread is not None:
+            join_thread()
 
     if status == "error":
         error_type, message = payload

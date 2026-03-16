@@ -41,7 +41,7 @@ class RtfParser:
         self._state_stack: List["RtfState"] = [RtfState()]
         self._dest_skip_depth = 0
         self._codepage = 1252
-        self._pending_unicode_char: Optional[int] = None
+        self._unicode_skip_remaining = 0
         self._list_buffer: List[Paragraph] = []
         self._hex_escape_buffer: List[int] = []
 
@@ -85,6 +85,11 @@ class RtfParser:
                 self._codepage = token.param
             return
 
+        if token.value == "uc":
+            if token.param is not None:
+                self._state.unicode_skip_count = max(token.param, 0)
+            return
+
         if action == ControlAction.DEST_SKIP:
             self._dest_skip_depth = 1
             return
@@ -116,12 +121,11 @@ class RtfParser:
             self._add_inline(Tab())
         elif action == ControlAction.UNICODE_CHAR:
             if token.param is not None:
-                codepoint = token.param
-                if codepoint > 0x7FFF:
-                    codepoint -= 0x10000
+                self._flush_hex_escape_buffer()
+                codepoint = token.param if token.param >= 0 else token.param + 0x10000
                 try:
-                    char = chr(codepoint)
-                    self._add_text(char)
+                    self._add_text(chr(codepoint))
+                    self._unicode_skip_remaining = self._state.unicode_skip_count
                 except ValueError:
                     pass
 
@@ -144,10 +148,17 @@ class RtfParser:
 
         if token.value == "'":
             if token.param is not None:
+                if self._unicode_skip_remaining > 0:
+                    self._unicode_skip_remaining -= 1
+                    return
                 self._hex_escape_buffer.append(token.param)
                 return
         else:
             self._flush_hex_escape_buffer()
+
+        if self._unicode_skip_remaining > 0:
+            self._unicode_skip_remaining -= 1
+            return
 
         if not self._hex_escape_buffer:
             self._add_text(token.value)
@@ -156,34 +167,38 @@ class RtfParser:
         """Flush accumulated hex escapes as text."""
         if not self._hex_escape_buffer:
             return
-        
-        # First try UTF-8 decode
+
+        byte_seq = bytes(self._hex_escape_buffer)
         try:
-            byte_seq = bytes(self._hex_escape_buffer)
-            char = byte_seq.decode("utf-8")
-            self._add_text(char)
-            self._hex_escape_buffer = []
-            return
-        except:
-            pass
-        
-        # Fall back to codepage decode
-        try:
-            for b in self._hex_escape_buffer:
-                byte = bytes([b])
-                char = byte.decode("cp1252")
-                self._add_text(char)
-        except:
-            for b in self._hex_escape_buffer:
-                self._add_text(chr(b))
+            decoded = byte_seq.decode(self._codepage_encoding(), errors="replace")
+        except (LookupError, UnicodeDecodeError):
+            decoded = byte_seq.decode("cp1252", errors="replace")
+
+        self._add_text(decoded)
         self._hex_escape_buffer = []
+
+    def _codepage_encoding(self) -> str:
+        if self._codepage == 65001:
+            return "utf-8"
+        try:
+            "".encode(f"cp{self._codepage}")
+            return f"cp{self._codepage}"
+        except LookupError:
+            return "cp1252"
 
     def _handle_text(self, token: Token) -> None:
         """Handle a text token."""
         if self._dest_skip_depth > 0:
             return
         self._flush_hex_escape_buffer()
-        self._add_text(token.value)
+        text = token.value
+        if self._unicode_skip_remaining > 0:
+            skipped = min(len(text), self._unicode_skip_remaining)
+            text = text[skipped:]
+            self._unicode_skip_remaining -= skipped
+            if not text:
+                return
+        self._add_text(text)
 
     def _add_text(self, text: str) -> None:
         """Add text to current paragraph."""
@@ -278,6 +293,7 @@ class RtfState:
         self.bold = False
         self.italic = False
         self.underline = False
+        self.unicode_skip_count = 1
         self.current_paragraph = Paragraph()
 
     def copy(self) -> "RtfState":
@@ -286,6 +302,7 @@ class RtfState:
         new_state.bold = self.bold
         new_state.italic = self.italic
         new_state.underline = self.underline
+        new_state.unicode_skip_count = self.unicode_skip_count
         new_state.current_paragraph = self.current_paragraph
         return new_state
 

@@ -83,28 +83,26 @@ class TestInputSizeLimits:
         """Non-regular local sources should be rejected explicitly."""
         sample_path = tmp_path / "special.bin"
         sample_path.write_bytes(b"ignored")
-        real_stat_fn = os.stat
-        real_stat = real_stat_fn(sample_path)
+        real_fstat = os.fstat
 
-        def fake_stat(path, *args, **kwargs):
-            if str(path) == str(sample_path):
-                return os.stat_result(
-                    (
-                        stat.S_IFCHR,
-                        real_stat.st_ino,
-                        real_stat.st_dev,
-                        real_stat.st_nlink,
-                        real_stat.st_uid,
-                        real_stat.st_gid,
-                        real_stat.st_size,
-                        real_stat.st_atime,
-                        real_stat.st_mtime,
-                        real_stat.st_ctime,
-                    )
+        def fake_fstat(fd):
+            real_stat = real_fstat(fd)
+            return os.stat_result(
+                (
+                    stat.S_IFCHR,
+                    real_stat.st_ino,
+                    real_stat.st_dev,
+                    real_stat.st_nlink,
+                    real_stat.st_uid,
+                    real_stat.st_gid,
+                    real_stat.st_size,
+                    real_stat.st_atime,
+                    real_stat.st_mtime,
+                    real_stat.st_ctime,
                 )
-            return real_stat_fn(path, *args, **kwargs)
+            )
 
-        monkeypatch.setattr("markdowner._core.os.stat", fake_stat)
+        monkeypatch.setattr("markdowner._core.os.fstat", fake_fstat)
 
         with pytest.raises(UnsafeLocalSourceException):
             MarkDowner().convert_local(sample_path)
@@ -120,8 +118,8 @@ class TestInputSizeLimits:
         real_open = open
 
         class GrowingFile:
-            def __init__(self, path, mode):
-                self._fh = real_open(path, "r+b")
+            def __init__(self, fd, mode, closefd=True):
+                self._fh = real_open(target, "r+b")
                 self._expanded = False
 
             def __getattr__(self, name):
@@ -142,7 +140,7 @@ class TestInputSizeLimits:
                     self._expanded = True
                 return self._fh.read(size)
 
-        with mock.patch("markdowner._core.open", side_effect=lambda path, mode: GrowingFile(path, mode)):
+        with mock.patch("markdowner._core.os.fdopen", side_effect=lambda fd, mode, closefd=True: GrowingFile(fd, mode, closefd)):
             with pytest.raises(InputSizeExceededException):
                 md.convert_local(target)
 

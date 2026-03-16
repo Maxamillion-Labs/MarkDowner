@@ -10,6 +10,7 @@ Provides the MarkDowner class that orchestrates document conversion.
 
 import io
 import mimetypes
+import errno
 import os
 import re
 import stat
@@ -38,8 +39,10 @@ from ._exceptions import (
     InputSizeExceededException,
     MarkDownerException,
     UnsafeLocalSourceException,
+    RecoverableConversionException,
 )
 from ._limits import Limits, DEFAULT_LIMITS
+from ._sandbox import ParserSandboxExited, ParserSandboxWorkerError
 from ._stream_info import StreamInfo
 
 
@@ -62,6 +65,7 @@ class MarkDowner:
     def __init__(
         self,
         limits: Optional[Limits] = None,
+        strict_mode: bool = False,
         **kwargs,
     ):
         """
@@ -69,9 +73,12 @@ class MarkDowner:
 
         Args:
             limits: Security limits to apply. Uses DEFAULT_LIMITS if None.
+            strict_mode: If True, disables fallback behavior entirely. All conversion
+                         failures become hard failures. Useful for CI/high-assurance runs.
             **kwargs: Additional configuration (currently unused, reserved for future).
         """
         self._limits = limits or DEFAULT_LIMITS
+        self._strict_mode = strict_mode
         self._magika = magika.Magika()
 
         # ExifTool path (optional)
@@ -173,7 +180,7 @@ class MarkDowner:
             priority=PRIORITY_DOC_SPECIFIC,
         )
         self.register_converter(
-            OutlookMsgConverter(),
+            OutlookMsgConverter(markdowner=self, limits=self._limits),
             priority=PRIORITY_DOC_SPECIFIC,
         )
         self.register_converter(
@@ -185,7 +192,7 @@ class MarkDowner:
             priority=PRIORITY_DOC_SPECIFIC,
         )
         self.register_converter(
-            XlsConverter(),
+            XlsConverter(limits=self._limits),
             priority=PRIORITY_DOC_SPECIFIC,
         )
         self.register_converter(
@@ -247,43 +254,59 @@ class MarkDowner:
     ) -> DocumentConverterResult:
         """Convert a local file."""
         path_str = str(path)
+        open_flags = os.O_RDONLY
+        if hasattr(os, "O_CLOEXEC"):
+            open_flags |= os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            open_flags |= os.O_NOFOLLOW
 
-        source_stat = os.stat(path_str)
-        if not stat.S_ISREG(source_stat.st_mode):
-            raise UnsafeLocalSourceException(path_str)
+        fd = None
+        try:
+            fd = os.open(path_str, open_flags)
+            source_stat = os.fstat(fd)
+            if not stat.S_ISREG(source_stat.st_mode):
+                raise UnsafeLocalSourceException(path_str)
 
-        if self._limits.enabled and not self._limits.check_input_size(source_stat.st_size):
-            raise InputSizeExceededException(
-                source_stat.st_size,
-                self._limits.max_input_bytes,
-                "size",
+            if self._limits.enabled and not self._limits.check_input_size(source_stat.st_size):
+                raise InputSizeExceededException(
+                    source_stat.st_size,
+                    self._limits.max_input_bytes,
+                    "size",
+                )
+
+            # Build base stream info
+            base_guess = StreamInfo(
+                local_path=path_str,
+                extension=os.path.splitext(path_str)[1],
+                filename=os.path.basename(path_str),
             )
 
-        # Build base stream info
-        base_guess = StreamInfo(
-            local_path=path_str,
-            extension=os.path.splitext(path_str)[1],
-            filename=os.path.basename(path_str),
-        )
+            # Extend with provided stream info
+            if stream_info is not None:
+                base_guess = base_guess.copy_and_update(
+                    mimetype=stream_info.mimetype,
+                    extension=stream_info.extension,
+                    charset=stream_info.charset,
+                    filename=stream_info.filename,
+                    local_path=stream_info.local_path,
+                    url=stream_info.url,
+                )
 
-        # Extend with provided stream info
-        if stream_info is not None:
-            base_guess = base_guess.copy_and_update(
-                mimetype=stream_info.mimetype,
-                extension=stream_info.extension,
-                charset=stream_info.charset,
-                filename=stream_info.filename,
-                local_path=stream_info.local_path,
-                url=stream_info.url,
-            )
-
-        # Convert
-        with open(path_str, "rb") as fh:
-            bounded_fh: BinaryIO = fh
-            if self._limits.enabled:
-                bounded_fh = BoundedStream(fh, self._limits.max_input_bytes)
-            guesses = self._get_stream_info_guesses(bounded_fh, base_guess)
-            return self._convert(bounded_fh, guesses, **kwargs)
+            # Convert
+            with os.fdopen(fd, "rb", closefd=True) as fh:
+                fd = None
+                bounded_fh: BinaryIO = fh
+                if self._limits.enabled:
+                    bounded_fh = BoundedStream(fh, self._limits.max_input_bytes)
+                guesses = self._get_stream_info_guesses(bounded_fh, base_guess)
+                return self._convert(bounded_fh, guesses, **kwargs)
+        except OSError as exc:
+            if hasattr(os, "O_NOFOLLOW") and exc.errno == errno.ELOOP:
+                raise UnsafeLocalSourceException(path_str) from exc
+            raise
+        finally:
+            if fd is not None:
+                os.close(fd)
 
     def convert_stream(
         self,
@@ -379,9 +402,31 @@ class MarkDowner:
                             exiftool_path=self._exiftool_path,
                             **kwargs,
                         )
-                    except MarkDownerException:
+                    except MarkDownerException as exc:
+                        if self._is_recoverable_conversion_failure(exc, self._strict_mode):
+                            accept_warnings.append(
+                                f"{converter.name} conversion fallback: {exc}"
+                            )
+                            failed_attempts.append(
+                                FailedConversionAttempt(
+                                    converter=converter,
+                                    exc_info=sys.exc_info(),
+                                )
+                            )
+                            continue
                         raise
                     except Exception as e:
+                        if self._is_recoverable_conversion_failure(e, self._strict_mode):
+                            accept_warnings.append(
+                                f"{converter.name} conversion fallback: {e}"
+                            )
+                            failed_attempts.append(
+                                FailedConversionAttempt(
+                                    converter=converter,
+                                    exc_info=sys.exc_info(),
+                                )
+                            )
+                            continue
                         failed_attempts.append(
                             FailedConversionAttempt(
                                 converter=converter,
@@ -422,6 +467,26 @@ class MarkDowner:
         raise UnsupportedFormatException(
             "Could not convert stream to Markdown. No converter attempted a conversion."
         )
+
+    @staticmethod
+    def _is_recoverable_conversion_failure(exc: BaseException, strict_mode: bool = False) -> bool:
+        """Determine if a conversion failure should trigger fallback to next converter.
+
+        Narrow policy: Only allow fallback when:
+        1. Explicitly marked as recoverable (RecoverableConversionException)
+        2. Parser sandbox infrastructure transient errors (worker crash/timeout)
+
+        All other failures (RuntimeError, ValueError, etc.) are treated as hard failures
+        because they typically indicate corrupted/invalid files or converter bugs,
+        not transient conditions.
+        """
+        if strict_mode:
+            return False
+        if isinstance(exc, RecoverableConversionException):
+            return True
+        if isinstance(exc, (ParserSandboxWorkerError, ParserSandboxExited)):
+            return True
+        return False
 
     def register_converter(
         self,

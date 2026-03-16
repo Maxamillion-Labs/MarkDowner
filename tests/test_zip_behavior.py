@@ -7,6 +7,7 @@
 import io
 import zipfile
 
+from markdowner import MarkDowner
 from markdowner._limits import Limits
 from markdowner._stream_info import StreamInfo
 from markdowner.converters._docx_converter import DocxConverter
@@ -110,3 +111,39 @@ def test_acceptors_do_not_scan_unbounded_zip_metadata(monkeypatch):
     assert len(seen) == 4
     assert all(entry[1] == 7 for entry in seen)
     assert all(entry[2] == 123 for entry in seen)
+
+
+def test_pk_prefixed_plain_text_falls_back_instead_of_failing():
+    result = MarkDowner().convert(
+        io.BytesIO(b"PK this is plain text, not an archive"),
+        stream_info=StreamInfo(filename="notes.txt"),
+    )
+
+    assert "PK this is plain text, not an archive" in result.text_content
+
+
+def test_nested_archive_depth_limit_applies_without_zip_extension():
+    inner = io.BytesIO()
+    with zipfile.ZipFile(inner, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("payload.txt", "blocked nested payload")
+
+    outer = io.BytesIO()
+    with zipfile.ZipFile(outer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("nested.bin", inner.getvalue())
+
+    md = MarkDowner(
+        limits=Limits(
+            max_recursion_depth=1,
+            max_zip_entry_bytes=1024,
+            max_zip_total_uncompressed_bytes=4096,
+            enabled=True,
+        )
+    )
+
+    result = md.convert(io.BytesIO(outer.getvalue()), stream_info=StreamInfo(extension=".zip"))
+
+    assert "blocked nested payload" not in result.text_content
+    assert any(
+        entry["reason"] == "recursion_limit" and entry["name"] == "nested.bin!payload.txt"
+        for entry in result.metadata["skipped_entries"]
+    )

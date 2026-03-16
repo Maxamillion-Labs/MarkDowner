@@ -62,3 +62,6 @@ class BoundedStream(io.BufferedIOBase):
         if end > self._max_bytes:
             raise InputSizeExceededException(end, self._max_bytes, "size")
         return chunk
+
+    def read1(self, size: int = -1) -> bytes:
+        return self.read(size)

@@ -58,10 +58,15 @@ class RtfLexer:
     def __iter__(self) -> Iterator[Token]:
         """Iterate through tokens."""
         while self.position < len(self.content):
-            match = self.CONTROL_PATTERN.match(self.content, self.position)
+            match = self.CONTROL_PATTERN.search(self.content, self.position)
             if not match:
-                self.text_buffer.append(self.content[self.position:self.position + 1])
-                self.position += 1
+                self.text_buffer.append(self.content[self.position:])
+                self.position = len(self.content)
+                break
+
+            if match.start() > self.position:
+                self.text_buffer.append(self.content[self.position:match.start()])
+                self.position = match.start()
                 continue
 
             text = self._decode_text()

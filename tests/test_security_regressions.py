@@ -6,14 +6,18 @@
 
 import io
 import os
+import queue
 import stat
+import sys
 import time
+import types
 import zipfile
 from unittest import mock
 
 import pytest
 
 from markdowner import MarkDowner
+from markdowner.converters._xls_converter import XlsConverter
 from markdowner._exceptions import (
     InputSizeExceededException,
     UnsafeLocalSourceException,
@@ -37,6 +41,10 @@ def _sleep_then_return() -> str:
 
 def _raise_in_worker() -> None:
     raise RuntimeError("boom")
+
+
+def _return_large_payload() -> bytes:
+    return b"x" * (256 * 1024)
 
 
 def test_forged_zip_metadata_vs_real_decompressed_bytes(monkeypatch):
@@ -84,28 +92,26 @@ def test_forged_zip_metadata_vs_real_decompressed_bytes(monkeypatch):
 def test_local_special_file_infinite_stream_path(tmp_path, monkeypatch):
     sample_path = tmp_path / "device.bin"
     sample_path.write_bytes(b"x")
-    real_stat = os.stat
-    stat_result = real_stat(sample_path)
+    real_fstat = os.fstat
 
-    def fake_stat(path, *args, **kwargs):
-        if str(path) == str(sample_path):
-            return os.stat_result(
-                (
-                    stat.S_IFIFO,
-                    stat_result.st_ino,
-                    stat_result.st_dev,
-                    stat_result.st_nlink,
-                    stat_result.st_uid,
-                    stat_result.st_gid,
-                    stat_result.st_size,
-                    stat_result.st_atime,
-                    stat_result.st_mtime,
-                    stat_result.st_ctime,
-                )
+    def fake_fstat(fd):
+        stat_result = real_fstat(fd)
+        return os.stat_result(
+            (
+                stat.S_IFIFO,
+                stat_result.st_ino,
+                stat_result.st_dev,
+                stat_result.st_nlink,
+                stat_result.st_uid,
+                stat_result.st_gid,
+                stat_result.st_size,
+                stat_result.st_atime,
+                stat_result.st_mtime,
+                stat_result.st_ctime,
             )
-        return real_stat(path, *args, **kwargs)
+        )
 
-    monkeypatch.setattr("markdowner._core.os.stat", fake_stat)
+    monkeypatch.setattr("markdowner._core.os.fstat", fake_fstat)
 
     with pytest.raises(UnsafeLocalSourceException):
         MarkDowner().convert_local(sample_path)
@@ -118,8 +124,8 @@ def test_toctou_like_growth_behavior(tmp_path):
     real_open = open
 
     class GrowingFile:
-        def __init__(self, path, mode):
-            self._fh = real_open(path, "r+b")
+        def __init__(self, fd, mode, closefd=True):
+            self._fh = real_open(target, "r+b")
             self._expanded = False
 
         def __getattr__(self, name):
@@ -140,7 +146,7 @@ def test_toctou_like_growth_behavior(tmp_path):
                 self._expanded = True
             return self._fh.read(size)
 
-    with mock.patch("markdowner._core.open", side_effect=lambda path, mode: GrowingFile(path, mode)):
+    with mock.patch("markdowner._core.os.fdopen", side_effect=lambda fd, mode, closefd=True: GrowingFile(fd, mode, closefd)):
         with pytest.raises(InputSizeExceededException):
             md.convert_local(target)
 
@@ -159,6 +165,15 @@ def test_parser_worker_failure_does_not_crash_main_process():
             _raise_in_worker,
             limits=ParserSandboxLimits(timeout_seconds=5, memory_limit_bytes=None),
         )
+
+
+def test_parser_large_payload_does_not_deadlock():
+    result = run_in_subprocess(
+        _return_large_payload,
+        limits=ParserSandboxLimits(timeout_seconds=5, memory_limit_bytes=None),
+    )
+
+    assert len(result) == 256 * 1024
 
 
 def test_temp_paths_scoped_and_cleaned_on_normal_exit():
@@ -200,3 +215,115 @@ def test_nested_archive_complexity_stress_within_limits():
 
     assert "safe nested payload" in result.text_content
     assert "middle.zip!deep.zip!deep.txt" in result.metadata["processed_entries"]
+
+
+def test_local_file_validation_uses_fstat_on_opened_descriptor(tmp_path, monkeypatch):
+    sample_path = tmp_path / "swap.txt"
+    sample_path.write_bytes(b"safe")
+    real_fstat = os.fstat
+
+    def fake_fstat(fd):
+        real_stat = real_fstat(fd)
+        return os.stat_result(
+            (
+                stat.S_IFIFO,
+                real_stat.st_ino,
+                real_stat.st_dev,
+                real_stat.st_nlink,
+                real_stat.st_uid,
+                real_stat.st_gid,
+                real_stat.st_size,
+                real_stat.st_atime,
+                real_stat.st_mtime,
+                real_stat.st_ctime,
+            )
+        )
+
+    monkeypatch.setattr("markdowner._core.os.fstat", fake_fstat)
+
+    with pytest.raises(UnsafeLocalSourceException):
+        MarkDowner().convert_local(sample_path)
+
+
+def test_xls_converter_runs_in_subprocess_with_temp_file(monkeypatch):
+    fake_pandas = types.ModuleType("pandas")
+    calls = {}
+
+    def fake_run_in_subprocess(func, path, *, limits):
+        calls["func"] = func
+        calls["path"] = path
+        calls["limits"] = limits
+        assert os.path.exists(path)
+        return "sheet markdown"
+
+    monkeypatch.setitem(sys.modules, "pandas", fake_pandas)
+    monkeypatch.setattr("markdowner.converters._xls_converter.run_in_subprocess", fake_run_in_subprocess)
+
+    result = XlsConverter().convert(io.BytesIO(b"legacy-xls"), StreamInfo(extension=".xls"))
+
+    assert result.text_content == "sheet markdown"
+    assert calls["func"].__name__ == "_convert_xls_to_markdown"
+    assert calls["path"].endswith(".xls")
+    assert calls["limits"].timeout_seconds > 0
+    assert calls["limits"].memory_limit_bytes is not None
+
+
+@pytest.mark.parametrize("sandbox_exc", [ParserSandboxTimeout(1), ParserSandboxWorkerError("RuntimeError", "boom")])
+def test_xls_converter_surfaces_sandbox_failures(monkeypatch, sandbox_exc):
+    fake_pandas = types.ModuleType("pandas")
+
+    monkeypatch.setitem(sys.modules, "pandas", fake_pandas)
+    monkeypatch.setattr(
+        "markdowner.converters._xls_converter.run_in_subprocess",
+        lambda *args, **kwargs: (_ for _ in ()).throw(sandbox_exc),
+    )
+
+    with pytest.raises(RuntimeError, match="XLS conversion failed"):
+        XlsConverter().convert(io.BytesIO(b"legacy-xls"), StreamInfo(extension=".xls"))
+
+
+def test_sandbox_timeout_escalates_to_kill(monkeypatch):
+    events = []
+
+    class FakeQueue:
+        def get(self, timeout=None):
+            events.append(("get", timeout))
+            raise queue.Empty()
+
+    class FakeProcess:
+        exitcode = -9
+
+        def start(self):
+            events.append("start")
+
+        def join(self, timeout=None):
+            events.append(("join", timeout))
+
+        def is_alive(self):
+            join_count = sum(1 for event in events if isinstance(event, tuple) and event[0] == "join")
+            return join_count < 3
+
+        def terminate(self):
+            events.append("terminate")
+
+        def kill(self):
+            events.append("kill")
+
+    class FakeContext:
+        def Queue(self):
+            return FakeQueue()
+
+        def Process(self, target, args):
+            return FakeProcess()
+
+    monkeypatch.setattr("markdowner._sandbox.multiprocessing.get_context", lambda method: FakeContext())
+
+    with pytest.raises(ParserSandboxTimeout):
+        run_in_subprocess(
+            _sleep_then_return,
+            limits=ParserSandboxLimits(timeout_seconds=1, memory_limit_bytes=None),
+        )
+
+    assert ("get", 1) in events
+    assert "terminate" in events
+    assert "kill" in events

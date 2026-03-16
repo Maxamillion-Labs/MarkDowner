@@ -4,10 +4,15 @@
 
 """Test RTF parser."""
 
+from pathlib import Path
+
 import pytest
 
 from markdowner.converters._rtf_parser import RtfParser, parse_rtf
 from markdowner.converters._rtf_ir import Document, Paragraph, TextInline
+
+FIXTURES = Path(__file__).parent / "test_files" / "rtf"
+EXPECTED = Path(__file__).parent / "test_files" / "rtf_expected"
 
 
 class TestRtfParser:
@@ -75,3 +80,29 @@ class TestRtfParser:
         parser = RtfParser(content)
         doc = parser.parse()
         assert isinstance(doc, Document)
+
+    def test_ansicpg_hex_escapes_honor_declared_codepage(self):
+        content = (FIXTURES / "cyrillic_cp1251.rtf").read_bytes()
+        expected = (EXPECTED / "cyrillic_cp1251.md").read_text(encoding="utf-8").strip()
+
+        doc = parse_rtf(content)
+        text = "".join(
+            inline.content
+            for block in doc.blocks
+            for inline in getattr(block, "inlines", [])
+            if isinstance(inline, TextInline)
+        )
+
+        assert text.strip() == expected
+
+    def test_unicode_fallback_characters_are_skipped(self):
+        content = br"{\rtf1\ansi\uc1 Caf\u233? and Gr\u252?ner}"
+        doc = parse_rtf(content)
+        text = "".join(
+            inline.content
+            for block in doc.blocks
+            for inline in getattr(block, "inlines", [])
+            if isinstance(inline, TextInline)
+        )
+
+        assert text == "Café and Grüner"

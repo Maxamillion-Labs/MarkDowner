@@ -16,13 +16,17 @@ class CsvConverter(DocumentConverter):
     """Converter for CSV files."""
 
     _CSV_EXTENSIONS = {".csv", ".tsv"}
+    _SNIFF_SAMPLE_BYTES = 8192
+    _MAX_ROWS = 10000
+    _MAX_COLUMNS = 256
+    _MAX_FIELD_CHARS = 16384
     _STRONG_CSV_MIME_TYPES = {
         "application/csv",
         "text/csv",
         "text/tab-separated-values",
     }
 
-    def _read_sample(self, stream: BinaryIO, size: int = 4096) -> bytes:
+    def _read_sample(self, stream: BinaryIO, size: int = _SNIFF_SAMPLE_BYTES) -> bytes:
         stream.seek(0)
         chunk = stream.read(size)
         stream.seek(0)
@@ -75,6 +79,73 @@ class CsvConverter(DocumentConverter):
 
         return None
 
+    def _validate_row(self, row: list[str]) -> None:
+        if len(row) > self._MAX_COLUMNS:
+            raise RuntimeError(
+                f"CSV conversion failed: row has {len(row)} columns, limit is {self._MAX_COLUMNS}"
+            )
+        for field in row:
+            if len(field) > self._MAX_FIELD_CHARS:
+                raise RuntimeError(
+                    "CSV conversion failed: field exceeds maximum allowed size"
+                )
+
+    def _convert_with_encoding(
+        self,
+        stream: BinaryIO,
+        stream_info: StreamInfo,
+        encoding: str,
+    ) -> DocumentConverterResult:
+        stream.seek(0)
+        text_stream = io.TextIOWrapper(stream, encoding=encoding, errors="strict", newline="")
+        try:
+            sniff_sample = text_stream.read(self._SNIFF_SAMPLE_BYTES)
+            text_stream.seek(0)
+            dialect = self._sniff_dialect(sniff_sample) or csv.excel
+            reader = csv.reader(text_stream, dialect)
+            markdown_rows: list[str] = []
+            header: list[str] | None = None
+            row_count = 0
+
+            for row in reader:
+                if not any(cell.strip() for cell in row):
+                    continue
+
+                row_count += 1
+                if row_count > self._MAX_ROWS:
+                    raise RuntimeError(
+                        f"CSV conversion failed: row count exceeds {self._MAX_ROWS}"
+                    )
+
+                self._validate_row(row)
+
+                if header is None:
+                    header = row
+                    separator = ["---"] * len(header)
+                    markdown_rows.append("| " + " | ".join(header) + " |")
+                    markdown_rows.append("| " + " | ".join(separator) + " |")
+                    continue
+
+                padded_row = row + [""] * (len(header) - len(row))
+                markdown_rows.append("| " + " | ".join(padded_row[: len(header)]) + " |")
+
+            if header is None:
+                raise RuntimeError("CSV conversion failed: empty input")
+
+            warnings = []
+            if stream_info.charset and encoding != stream_info.charset:
+                warnings.append(
+                    f"CSV decoded with fallback encoding {encoding} instead of {stream_info.charset}"
+                )
+
+            return DocumentConverterResult(
+                text_content="\n".join(markdown_rows),
+                metadata={"encoding": encoding, "rows": row_count, "columns": len(header)},
+                warnings=warnings,
+            )
+        finally:
+            text_stream.detach()
+
     def accepts(
         self,
         stream: BinaryIO,
@@ -107,9 +178,6 @@ class CsvConverter(DocumentConverter):
         **kwargs
     ) -> DocumentConverterResult:
         """Convert CSV to Markdown."""
-        stream.seek(0)
-        content = stream.read()
-        warnings = []
         encodings = []
         for encoding in (
             stream_info.charset,
@@ -124,31 +192,7 @@ class CsvConverter(DocumentConverter):
         last_error = None
         for encoding in encodings:
             try:
-                decoded = content.decode(encoding)
-                dialect = self._sniff_dialect(decoded) or csv.excel
-                rows = list(csv.reader(io.StringIO(decoded), dialect))
-                if not rows:
-                    raise RuntimeError("CSV conversion failed: empty input")
-                header = rows[0]
-                body = rows[1:]
-                separator = ["---"] * len(header)
-                markdown_rows = [
-                    "| " + " | ".join(header) + " |",
-                    "| " + " | ".join(separator) + " |",
-                ]
-                for row in body:
-                    padded_row = row + [""] * (len(header) - len(row))
-                    markdown_rows.append("| " + " | ".join(padded_row[: len(header)]) + " |")
-                metadata = {"encoding": encoding}
-                if stream_info.charset and encoding != stream_info.charset:
-                    warnings.append(
-                        f"CSV decoded with fallback encoding {encoding} instead of {stream_info.charset}"
-                    )
-                return DocumentConverterResult(
-                    text_content="\n".join(markdown_rows),
-                    metadata=metadata,
-                    warnings=warnings,
-                )
+                return self._convert_with_encoding(stream, stream_info, encoding)
             except UnicodeDecodeError as exc:
                 last_error = exc
                 continue

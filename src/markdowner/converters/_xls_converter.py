@@ -7,12 +7,33 @@
 from typing import BinaryIO
 
 from .._base_converter import DocumentConverter, DocumentConverterResult
+from .._limits import DEFAULT_LIMITS, Limits
+from .._sandbox import ParserSandboxLimits, run_in_subprocess
 from .._stream_info import StreamInfo
+from .._temp_utils import materialize_stream_to_temp_path
 from .._exceptions import MissingDependencyException
+
+
+def _convert_xls_to_markdown(xls_path: str) -> str:
+    import pandas as pd
+
+    excel_file = pd.ExcelFile(xls_path)
+    sheets = []
+
+    for sheet_name in excel_file.sheet_names:
+        df = pd.read_excel(excel_file, sheet_name=sheet_name)
+        sheets.append(f"## Sheet: {sheet_name}\n")
+        sheets.append(df.to_markdown(index=False))
+        sheets.append("\n")
+
+    return "\n".join(sheets)
 
 
 class XlsConverter(DocumentConverter):
     """Converter for legacy XLS files."""
+
+    def __init__(self, limits: Limits = DEFAULT_LIMITS):
+        self._limits = limits
 
     def accepts(
         self,
@@ -31,12 +52,7 @@ class XlsConverter(DocumentConverter):
         if extension == ".xls":
             return True
 
-        # Check OLE magic
-        stream.seek(0)
-        magic = stream.read(8)
-        stream.seek(0)
-
-        return magic[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+        return False
 
     def convert(
         self,
@@ -52,29 +68,14 @@ class XlsConverter(DocumentConverter):
                 "pandas is required for XLS conversion. Install with: pip install markdowner[xls]"
             )
 
-        # Save to temp file
-        import tempfile
-        import os
-
-        stream.seek(0)
-        with tempfile.NamedTemporaryFile(suffix=".xls", delete=False) as tmp:
-            tmp.write(stream.read())
-            tmp_path = tmp.name
-
         try:
-            excel_file = pd.ExcelFile(tmp_path)
-            sheets = []
-
-            for sheet_name in excel_file.sheet_names:
-                df = pd.read_excel(excel_file, sheet_name=sheet_name)
-                sheets.append(f"## Sheet: {sheet_name}\n")
-                sheets.append(df.to_markdown(index=False))
-                sheets.append("\n")
-
-            text = "\n".join(sheets)
+            with materialize_stream_to_temp_path(stream, ".xls") as tmp_path:
+                text = run_in_subprocess(
+                    _convert_xls_to_markdown,
+                    str(tmp_path),
+                    limits=ParserSandboxLimits(),
+                )
         except Exception as e:
             raise RuntimeError(f"XLS conversion failed: {e}") from e
-        finally:
-            os.unlink(tmp_path)
 
         return DocumentConverterResult(text_content=text)

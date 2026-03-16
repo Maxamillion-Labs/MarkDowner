@@ -10,6 +10,16 @@ class MarkDownerException(Exception):
     pass
 
 
+class RecoverableConversionException(MarkDownerException):
+    """Raised by converters that explicitly support fallback to next converter.
+
+    This is an intentional signal that the converter accepts fallback behavior
+    when conversion fails, allowing the next converter to attempt conversion.
+    Use this only when the converter genuinely supports fallback semantics.
+    """
+    pass
+
+
 class MissingDependencyException(MarkDownerException):
     """Raised when a required dependency is not installed."""
     pass

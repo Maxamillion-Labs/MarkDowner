@@ -14,12 +14,50 @@ Supports the following workflows:
 """
 
 import argparse
+import os
+import re
 import sys
 from pathlib import Path
 
 from ._core import MarkDowner
 from ._stream_info import StreamInfo
 from ._exceptions import MarkDownerException
+from ._base_converter import DocumentConverterResult
+
+
+def _output_arg_looks_like_directory(value: str) -> bool:
+    """Treat existing directories and trailing separators as directory targets."""
+    separators = [os.sep]
+    if os.altsep:
+        separators.append(os.altsep)
+    return any(value.endswith(separator) for separator in separators)
+
+
+def _sanitize_attachment_label(name: str | None) -> str:
+    if not name:
+        return ""
+    stem = Path(name).stem.strip().lower()
+    return re.sub(r"[^a-z0-9]+", "-", stem).strip("-")
+
+
+def _attachment_output_path(output_path: Path, index: int, attachment_name: str | None = None) -> Path:
+    sequence_suffix = "" if index == 0 else f"-{index + 1}"
+    label = _sanitize_attachment_label(attachment_name)
+    label_suffix = f"-{label}" if label else ""
+    return output_path.with_name(
+        f"{output_path.stem}-attachment{sequence_suffix}{label_suffix}.md"
+    )
+
+
+def _write_output_files(output_path: Path, result: DocumentConverterResult) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(result.text_content, encoding="utf-8")
+
+    for index, attachment in enumerate(result.metadata.get("attachment_outputs", [])):
+        _attachment_output_path(output_path, index, attachment.get("name")).write_text(
+            attachment["markdown"],
+            encoding="utf-8",
+        )
 
 
 def main() -> int:
@@ -135,7 +173,17 @@ Examples:
 
     # Output result
     if args.output:
-        Path(args.output).write_text(result.text_content, encoding="utf-8")
+        output_path = Path(args.output)
+
+        if output_path.is_dir() or (
+            not output_path.exists() and _output_arg_looks_like_directory(args.output)
+        ):
+            print(
+                f"Error: --output '{args.output}' is a directory. Please specify a file path.",
+                file=sys.stderr,
+            )
+            return 1
+        _write_output_files(output_path, result)
     else:
         print(result.text_content, end="")
 

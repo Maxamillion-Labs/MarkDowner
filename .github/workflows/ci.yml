@@ -20,3 +20,30 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e .
       - run: python -m pytest tests/ -q
+
+  test-full-optional:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: test -f tests/test_files/sample.msg
+      - run: test -f tests/test_files/sample-attachment.msg
+      - run: test -f tests/test_files/sample.xls
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[all]"
+      - run: python -m pytest tests/test_fixture_corpus.py -q
+      - run: python -m pytest tests/test_security_regressions.py tests/test_zip_behavior.py tests/test_rtf_lexer.py tests/test_rtf_parser.py -q
+
+  test-xls-extra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: test -f tests/test_files/sample.xls
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[xls]"
+      - run: python -m pytest tests/test_fixture_corpus.py -k xls_fixture_converts_end_to_end -q

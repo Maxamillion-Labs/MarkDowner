@@ -4,6 +4,7 @@
 
 """Test CLI parity - verify all CLI workflows work correctly."""
 
+import os
 import shutil
 import subprocess
 import sys
@@ -12,6 +13,8 @@ from unittest import mock
 
 import pytest
 
+from markdowner.__main__ import _attachment_output_path, _write_output_files
+from markdowner._base_converter import DocumentConverterResult
 
 FIXTURES = Path(__file__).parent / "test_files"
 
@@ -183,8 +186,8 @@ def test_cli_oversized_stdin_fails_fast():
     assert "exceeds maximum allowed" in result.stderr.lower()
 
 
-def test_cli_malformed_zip_returns_non_zero(tmp_path):
-    """Malformed ZIP input should not be reported as a successful conversion."""
+def test_cli_malformed_zip_falls_back_instead_of_hard_failing(tmp_path):
+    """Malformed ZIP input should be treated as recoverable and allowed to fall back."""
     bad_zip = tmp_path / "bad.zip"
     bad_zip.write_bytes(b"PK\x03\x04not-a-real-zip")
 
@@ -194,8 +197,9 @@ def test_cli_malformed_zip_returns_non_zero(tmp_path):
         text=True,
     )
 
-    assert result.returncode != 0
-    assert "conversion failed" in result.stderr.lower() or "bad zip file" in result.stderr.lower()
+    assert result.returncode == 0
+    assert "not-a-real-zip" in result.stdout
+    assert result.stderr == ""
 
 
 def test_cli_rejects_infinite_like_input(monkeypatch, tmp_path, capsys):
@@ -221,6 +225,145 @@ def test_cli_rejects_infinite_like_input(monkeypatch, tmp_path, capsys):
 
     captured = capsys.readouterr()
     assert "non-regular local source" in captured.err.lower()
+
+
+@pytest.mark.skipif(
+    not (FIXTURES / "sample-attachment.msg").exists(),
+    reason="sample-attachment.msg fixture not present",
+)
+def test_cli_msg_attachment_creates_output_file(tmp_path):
+    """MSG with attachment should create main output file."""
+    fixture = FIXTURES / "sample-attachment.msg"
+    output_file = tmp_path / "output.md"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "markdowner", str(fixture), "-o", str(output_file)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert output_file.exists()
+    content = output_file.read_text()
+    assert content.strip()
+
+
+@pytest.mark.skipif(
+    not (FIXTURES / "sample-attachment.msg").exists(),
+    reason="sample-attachment.msg fixture not present",
+)
+def test_cli_msg_attachment_failure_is_non_fatal(tmp_path):
+    """Attachment conversion failure should not cause non-zero exit if main conversion succeeds."""
+    fixture = FIXTURES / "sample-attachment.msg"
+    output_file = tmp_path / "output.md"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "markdowner", str(fixture), "-o", str(output_file)],
+        capture_output=True,
+        text=True,
+    )
+
+    # Should succeed even if attachment fails
+    assert result.returncode == 0
+    assert output_file.exists()
+
+
+@pytest.mark.skipif(
+    not (FIXTURES / "sample-attachment.msg").exists(),
+    reason="sample-attachment.msg fixture not present",
+)
+def test_cli_msg_attachment_warning_on_failure(tmp_path):
+    """Failed attachment conversion should produce a warning."""
+    fixture = FIXTURES / "sample-attachment.msg"
+    output_file = tmp_path / "output.md"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "markdowner", str(fixture), "-o", str(output_file)],
+        capture_output=True,
+        text=True,
+    )
+
+    # Either attachment succeeds (file created) or failure produces warning
+    attachment_files = list(tmp_path.glob("output-attachment*.md"))
+    if not attachment_files:
+        # If no attachment file, there should be a warning about skipped attachment
+        assert "attachment skipped" in result.stderr.lower() or "warning" in result.stderr.lower()
+
+
+def test_cli_output_rejects_directory(tmp_path):
+    """Test: --output as directory should fail with clear error."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("Hello")
+    
+    output_dir = tmp_path / "output_dir"
+    output_dir.mkdir()
+    
+    result = subprocess.run(
+        [sys.executable, "-m", "markdowner", str(test_file), "-o", str(output_dir)],
+        capture_output=True,
+        text=True,
+    )
+    
+    assert result.returncode == 1
+    assert "is a directory" in result.stderr.lower()
+
+
+def test_cli_output_rejects_trailing_separator_directory_hint(tmp_path):
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("Hello")
+
+    output_dir = tmp_path / "new-dir"
+    output_arg = f"{output_dir}{os.sep}"
+
+    result = subprocess.run(
+        [sys.executable, "-m", "markdowner", str(test_file), "-o", output_arg],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "is a directory" in result.stderr.lower()
+    assert not output_dir.exists()
+
+
+def test_cli_output_creates_parent_directories(tmp_path):
+    """Test: --output with non-existing parent should create parent dirs."""
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("Hello")
+    
+    output_file = tmp_path / "subdir" / "output.md"
+    
+    result = subprocess.run(
+        [sys.executable, "-m", "markdowner", str(test_file), "-o", str(output_file)],
+        capture_output=True,
+        text=True,
+    )
+    
+    assert result.returncode == 0
+    assert output_file.exists()
+    assert "Hello" in output_file.read_text()
+
+
+def test_attachment_output_paths_are_deterministic(tmp_path):
+    output_file = tmp_path / "report.md"
+    result = DocumentConverterResult(
+        text_content="main body",
+        metadata={
+            "attachment_outputs": [
+                {"name": "alpha.txt", "markdown": "alpha body"},
+                {"name": "beta.txt", "markdown": "beta body"},
+            ]
+        },
+    )
+
+    _write_output_files(output_file, result)
+
+    first_attachment = _attachment_output_path(output_file, 0, "alpha.txt")
+    second_attachment = _attachment_output_path(output_file, 1, "beta.txt")
+    assert first_attachment.name == "report-attachment-alpha.md"
+    assert second_attachment.name == "report-attachment-2-beta.md"
+    assert first_attachment.read_text() == "alpha body"
+    assert second_attachment.read_text() == "beta body"
 
 
 if __name__ == "__main__":

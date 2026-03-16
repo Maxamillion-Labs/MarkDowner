@@ -4,7 +4,9 @@
 
 """Outlook MSG converter."""
 
-from typing import BinaryIO
+import io
+import os
+from typing import Any, BinaryIO, List
 
 from .._base_converter import DocumentConverter, DocumentConverterResult
 from .._sandbox import ParserSandboxLimits, run_in_subprocess
@@ -13,13 +15,42 @@ from .._temp_utils import materialize_stream_to_temp_path
 from .._exceptions import MissingDependencyException
 
 
-def _convert_msg_to_payload(msg_path: str) -> tuple[str, list[str]]:
+# Increase timeout for MSG files with attachments (they can be slow to parse)
+MSG_PARSER_TIMEOUT_SECONDS = 120
+ATTACH_EMBEDDED_MESSAGE = 5
+ATTACH_OLE = 6
+
+
+def _read_utf16_stream(ole: Any, path: list[str]) -> str | None:
+    if not ole.exists(path):
+        return None
+    try:
+        return ole.openstream(path).read().decode("utf-16-le").rstrip("\x00")
+    except Exception:
+        return None
+
+
+def _read_attachment_method(ole: Any, storage_name: str) -> int | None:
+    method_path = [storage_name, "__substg1.0_37050003"]
+    if not ole.exists(method_path):
+        return None
+    try:
+        data = ole.openstream(method_path).read()
+        if len(data) < 4:
+            return None
+        return int.from_bytes(data[:4], "little")
+    except Exception:
+        return None
+
+
+def _convert_msg_to_payload(msg_path: str) -> tuple[str, List[str], List[dict]]:
     import olefile
 
     ole = olefile.OleFileIO(msg_path)
     try:
         lines = []
         warnings = []
+        attachments = []
 
         if ole.exists("__substg1.0_0037001F"):
             subject = ole.openstream("__substg1.0_0037001F").read()
@@ -42,13 +73,55 @@ def _convert_msg_to_payload(msg_path: str) -> tuple[str, list[str]]:
             except Exception as exc:
                 warnings.append(f"MSG body skipped: {exc}")
 
-        return "\n".join(lines), warnings
+        attachment_storages = set()
+        for entry in ole.listdir():
+            if len(entry) >= 1 and entry[0].startswith("__attach_version1.0_"):
+                attachment_storages.add(entry[0])
+        
+        for idx, storage_name in enumerate(sorted(attachment_storages)):
+            name = _read_utf16_stream(ole, [storage_name, "__substg1.0_3704001F"])
+            if not name:
+                name = _read_utf16_stream(ole, [storage_name, "__substg1.0_3703001F"])
+            if not name:
+                name = f"attachment-{idx + 1}.bin"
+
+            content = None
+            try:
+                data_path = [storage_name, "__substg1.0_37010102"]
+                content = ole.openstream(data_path).read()
+            except Exception:
+                pass
+
+            if content and len(content) > 0:
+                attachments.append({
+                    "name": name,
+                    "content": content,
+                    "method": _read_attachment_method(ole, storage_name),
+                })
+                continue
+
+            method = _read_attachment_method(ole, storage_name)
+            if method in (ATTACH_EMBEDDED_MESSAGE, ATTACH_OLE) or ole.exists(
+                [storage_name, "__substg1.0_3701000D"]
+            ):
+                warnings.append(
+                    f"attachment skipped ({name}): unsupported embedded outlook item"
+                )
+            else:
+                warnings.append(f"attachment skipped ({name}): no content")
+
+        return "\n".join(lines), warnings, attachments
     finally:
         ole.close()
 
 
 class OutlookMsgConverter(DocumentConverter):
     """Converter for Outlook MSG files."""
+
+    def __init__(self, markdowner=None, limits=None):
+        """Initialize MSG converter with optional markdowner for attachment conversion."""
+        self._markdowner = markdowner
+        self._limits = limits
 
     def accepts(
         self,
@@ -91,12 +164,55 @@ class OutlookMsgConverter(DocumentConverter):
 
         try:
             with materialize_stream_to_temp_path(stream, ".msg") as tmp_path:
-                text, warnings = run_in_subprocess(
+                text, warnings, attachments = run_in_subprocess(
                     _convert_msg_to_payload,
                     str(tmp_path),
-                    limits=ParserSandboxLimits(),
+                    limits=ParserSandboxLimits(timeout_seconds=MSG_PARSER_TIMEOUT_SECONDS),
                 )
         except Exception as e:
             raise RuntimeError(f"MSG conversion failed: {e}") from e
 
-        return DocumentConverterResult(text_content=text, warnings=warnings)
+        attachment_outputs = []
+        if self._markdowner and attachments:
+            for att in attachments:
+                content = att.get("content")
+                if not content:
+                    warnings.append(
+                        f"attachment skipped ({att.get('name', 'unknown')}): no content"
+                    )
+                    continue
+
+                name = att.get("name", "attachment.bin")
+                _, ext = os.path.splitext(name)
+                att_stream_info = StreamInfo(
+                    filename=name,
+                    extension=ext.lower() if ext else None,
+                )
+
+                try:
+                    att_result = self._markdowner.convert_stream(
+                        io.BytesIO(content),
+                        stream_info=att_stream_info,
+                    )
+                    if att_result.text_content.strip():
+                        attachment_outputs.append(
+                            {
+                                "name": name,
+                                "markdown": att_result.text_content,
+                            }
+                        )
+                        warnings.extend(
+                            f"{name}: {warning}" for warning in att_result.warnings
+                        )
+                    else:
+                        warnings.append(f"attachment skipped ({name}): no conversion output")
+                except Exception as exc:
+                    warnings.append(f"attachment skipped ({name}): {exc}")
+
+        metadata = {"attachment_outputs": attachment_outputs}
+
+        return DocumentConverterResult(
+            text_content=text,
+            warnings=warnings,
+            metadata=metadata,
+        )

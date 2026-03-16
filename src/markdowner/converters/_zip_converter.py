@@ -49,12 +49,22 @@ class ZipConverter(DocumentConverter):
         if extension == ".zip":
             return True
 
-        # Check ZIP magic
-        stream.seek(0)
-        magic = stream.read(2)
-        stream.seek(0)
+        return self._is_zip_payload(stream)
 
-        return magic == b"PK"
+    @staticmethod
+    def _is_zip_payload(stream: BinaryIO) -> bool:
+        current_pos = stream.tell()
+        try:
+            stream.seek(0)
+            magic = stream.read(4)
+            if magic[:2] != b"PK":
+                return False
+            stream.seek(0)
+            return zipfile.is_zipfile(stream)
+        except Exception:
+            return False
+        finally:
+            stream.seek(current_pos)
 
     @staticmethod
     def _prefix_entry_name(parent_name: str, child_name: str) -> str:
@@ -167,21 +177,18 @@ class ZipConverter(DocumentConverter):
                         ),
                     )
 
-                    if ext.lower() == ".zip":
-                        next_depth = current_depth + 1
-                        if not self._limits.check_recursion_depth(next_depth):
-                            warning = f"Skipped nested archive at recursion limit: {name}"
-                            warnings.append(warning)
-                            metadata["skipped_entries"].append(
-                                {
-                                    "name": name,
-                                    "reason": "recursion_limit",
-                                    "depth": next_depth,
-                                }
-                            )
-                            continue
-                    else:
-                        next_depth = current_depth
+                    next_depth = current_depth + 1
+                    if not self._limits.check_recursion_depth(next_depth):
+                        warning = f"Skipped nested archive at recursion limit: {name}"
+                        warnings.append(warning)
+                        metadata["skipped_entries"].append(
+                            {
+                                "name": name,
+                                "reason": "recursion_limit",
+                                "depth": next_depth,
+                            }
+                        )
+                        continue
 
                     if self._markdowner is None:
                         results.append(f"## {name}\n\n- Size: {actual_entry_size} bytes\n")
@@ -257,7 +264,11 @@ class ZipConverter(DocumentConverter):
                     metadata["processed_entries"].append(name)
                     metadata["files_processed"] += 1
         except zipfile.BadZipFile as e:
-            raise ValueError(f"Bad ZIP file: {e}") from e
+            return DocumentConverterResult(
+                text_content="",
+                metadata={"error": f"Bad ZIP file: {e}", "recoverable": True},
+                warnings=[f"ZIP parse fallback: {e}"],
+            )
 
         # Build output
         lines = ["# ZIP Archive Contents\n"]

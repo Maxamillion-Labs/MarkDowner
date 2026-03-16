@@ -13,7 +13,11 @@ from unittest.mock import patch
 import pytest
 
 from markdowner import MarkDowner
+from markdowner._base_converter import DocumentConverter, DocumentConverterResult
+from markdowner._exceptions import RecoverableConversionException
 from markdowner._stream_info import StreamInfo
+from markdowner.converters._csv_converter import CsvConverter
+from markdowner.converters._html_converter import HtmlConverter
 from markdowner.converters._image_converter import ImageConverter, _EXIFTOOL_SUCCESS_CACHE
 
 
@@ -58,6 +62,16 @@ class TestHtmlConversion:
         assert "[Link](https://example.com)" in result.text_content
         assert "- First" in result.text_content
         assert "alert(1)" not in result.text_content
+
+    def test_html_converter_timeout_is_reported(self, monkeypatch):
+        converter = HtmlConverter()
+        monkeypatch.setattr(
+            "markdowner.converters._html_converter.run_in_subprocess",
+            lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("timeout")),
+        )
+
+        with pytest.raises(RuntimeError, match="HTML conversion failed"):
+            converter.convert(io.BytesIO(b"<html><body>blocked</body></html>"), StreamInfo(extension=".html"))
 
 
 class TestZipConversion:
@@ -227,6 +241,79 @@ class TestCsvConversion:
         assert "Caf" in result.text_content
         assert result.metadata["encoding"] == "cp1252"
         assert any("fallback encoding cp1252" in warning for warning in result.warnings)
+
+    def test_csv_wide_row_limit_is_enforced(self):
+        converter = CsvConverter()
+        wide_row = ",".join(f"c{i}" for i in range(300)).encode("utf-8")
+
+        with pytest.raises(RuntimeError, match="row has 300 columns"):
+            converter.convert(io.BytesIO(wide_row), StreamInfo(extension=".csv"))
+
+    def test_csv_row_count_limit_is_enforced(self):
+        converter = CsvConverter()
+        body = "\n".join("1,2,3" for _ in range(10001))
+        payload = f"a,b,c\n{body}".encode("utf-8")
+
+        with pytest.raises(RuntimeError, match="row count exceeds 10000"):
+            converter.convert(io.BytesIO(payload), StreamInfo(extension=".csv"))
+
+
+class TestRecoverableFallback:
+    """Test recoverable converter fallback behavior."""
+
+    class BrokenAcceptedConverter(DocumentConverter):
+        def accepts(self, stream, stream_info, **kwargs):
+            return True
+
+        def convert(self, stream, stream_info, **kwargs):
+            raise RecoverableConversionException("intentional fallback")
+
+    class RuntimeErrorConverter(DocumentConverter):
+        def accepts(self, stream, stream_info, **kwargs):
+            return True
+
+        def convert(self, stream, stream_info, **kwargs):
+            raise RuntimeError("non-recoverable error")
+
+    class WorkingConverter(DocumentConverter):
+        def accepts(self, stream, stream_info, **kwargs):
+            return True
+
+        def convert(self, stream, stream_info, **kwargs):
+            stream.seek(0)
+            return DocumentConverterResult(text_content=stream.read().decode("utf-8"))
+
+    def test_explicit_recoverable_exception_triggers_fallback(self):
+        """RecoverableConversionException should trigger fallback to next converter."""
+        md = MarkDowner()
+        md.register_converter(self.WorkingConverter(), priority=-40)
+        md.register_converter(self.BrokenAcceptedConverter(), priority=-50)
+
+        result = md.convert(io.BytesIO(b"fallback success"), stream_info=StreamInfo(extension=".txt"))
+
+        assert result.text_content == "fallback success"
+        assert any("BrokenAcceptedConverter conversion fallback" in warning for warning in result.warnings)
+
+    def test_runtime_error_does_not_fallback_by_default(self):
+        """RuntimeError should NOT trigger fallback - it's a hard failure."""
+        md = MarkDowner()
+        md.register_converter(self.WorkingConverter(), priority=-40)
+        md.register_converter(self.RuntimeErrorConverter(), priority=-50)
+
+        with pytest.raises(Exception) as exc_info:
+            md.convert(io.BytesIO(b"should fail"), stream_info=StreamInfo(extension=".txt"))
+        
+        # Should raise a FileConversionException wrapping the RuntimeError
+        assert "non-recoverable error" in str(exc_info.value)
+
+    def test_strict_mode_disables_all_fallback(self):
+        """strict_mode=True should disable all fallback behavior."""
+        md = MarkDowner(strict_mode=True)
+        md.register_converter(self.WorkingConverter(), priority=-40)
+        md.register_converter(self.BrokenAcceptedConverter(), priority=-50)
+
+        with pytest.raises(RecoverableConversionException):
+            md.convert(io.BytesIO(b"should fail"), stream_info=StreamInfo(extension=".txt"))
 
 
 class TestExtensionInference:

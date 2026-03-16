@@ -14,7 +14,33 @@ from .._base_converter import (
     DocumentConverterResult,
     PRIORITY_GENERIC_FILE_FORMAT,
 )
+from .._sandbox import ParserSandboxLimits, run_in_subprocess
 from .._stream_info import StreamInfo
+from .._temp_utils import materialize_stream_to_temp_path
+
+
+def _convert_html_to_markdown(html_path: str, charset: str | None) -> str:
+    with open(html_path, "rb") as fh:
+        content = fh.read()
+
+    try:
+        decoded = content.decode(charset or "utf-8", errors="replace")
+    except Exception:
+        decoded = content.decode("utf-8", errors="replace")
+
+    soup = BeautifulSoup(decoded, "html.parser")
+
+    for element in soup(["script", "style"]):
+        element.decompose()
+
+    return to_markdown(
+        str(soup),
+        heading_style="ATX",
+        bullets="-",
+        strip=["script", "style"],
+        autolinks=True,
+        strong_em_symbol="*",
+    ).strip()
 
 
 class HtmlConverter(DocumentConverter):
@@ -62,31 +88,15 @@ class HtmlConverter(DocumentConverter):
         **kwargs
     ) -> DocumentConverterResult:
         """Convert HTML to Markdown."""
-        # Determine encoding
-        charset = stream_info.charset or "utf-8"
-
-        # Read content
-        stream.seek(0)
         try:
-            content = stream.read().decode(charset, errors="replace")
-        except Exception:
-            stream.seek(0)
-            content = stream.read().decode("utf-8", errors="replace")
-
-        # Parse HTML
-        soup = BeautifulSoup(content, "html.parser")
-
-        # Remove script and style elements
-        for element in soup(["script", "style"]):
-            element.decompose()
-
-        text = to_markdown(
-            str(soup),
-            heading_style="ATX",
-            bullets="-",
-            strip=["script", "style"],
-            autolinks=True,
-            strong_em_symbol="*",
-        ).strip()
+            with materialize_stream_to_temp_path(stream, ".html") as tmp_path:
+                text = run_in_subprocess(
+                    _convert_html_to_markdown,
+                    str(tmp_path),
+                    stream_info.charset,
+                    limits=ParserSandboxLimits(),
+                )
+        except Exception as exc:
+            raise RuntimeError(f"HTML conversion failed: {exc}") from exc
 
         return DocumentConverterResult(text_content=text)
