@@ -1,32 +1,20 @@
-# MarkDowner User Guide
+# MarkDowner User Guide (Current)
 
 MarkDowner is a local CLI tool that converts many document/file types into Markdown.
-
-## What it does
-
-- Converts local files to Markdown
-- Converts piped stdin to Markdown
-- Supports output to stdout or a file
-- Handles multiple formats through one command
 
 ---
 
 ## Quick Start
 
-## 1) Activate environment
+### 1) Activate environment
 
-### Option A (project-local venv)
+Project-local venv:
 ```bash
 cd ~/Projects/MarkDowner
 source .venv/bin/activate
 ```
 
-### Option B (user-level shared venv)
-```bash
-source ~/.venvs/markdowner/bin/activate
-```
-
-## 2) Verify install
+### 2) Verify
 ```bash
 python -m markdowner --version
 ```
@@ -35,29 +23,24 @@ python -m markdowner --version
 
 ## Basic Usage
 
-## Convert a file to stdout
+### Convert file to stdout
 ```bash
 python -m markdowner input.pdf
 ```
 
-## Convert a file to an output file
+### Convert file to markdown output file
 ```bash
 python -m markdowner input.docx -o output.md
 ```
 
-## Convert from stdin (pipe) with extension hint
+### Convert from stdin with extension hint
 ```bash
 cat input.rtf | python -m markdowner -x .rtf > output.md
 ```
 
-## Convert from redirected stdin
+### Convert from redirected stdin
 ```bash
 python -m markdowner -x .txt < notes.txt
-```
-
-## Show CLI help
-```bash
-python -m markdowner --help
 ```
 
 ---
@@ -80,109 +63,79 @@ python -m markdowner --help
 
 ---
 
-## Dependencies
+## Outlook MSG + Attachment Behavior
 
-MarkDowner uses optional Python dependencies for some formats plus external tools.
+When converting `.msg`:
+- Main email body is converted to markdown.
+- Attachments are inspected and, if supported, converted through the normal converter pipeline.
+- If you pass `-o output.md`, attachment markdown files are written as sibling files.
 
-## External tools
+Example output naming:
+- `output.md` (main message)
+- `output-attachment-<name>.md`
+- `output-attachment-2-<name>.md` (additional attachments)
 
-### RTF conversion
-No external tool is required; `.rtf` uses the native parser.
-
-### Recommended for image metadata extraction
-```bash
-brew install exiftool
-```
-
-## Python dependencies
-If installing from project extras:
-```bash
-pip install -e ".[all]" tabulate
-```
-
-> Note: `tabulate` is needed for table rendering and should be included explicitly.
+If an attachment cannot be converted:
+- Main message conversion still succeeds.
+- A concise warning is printed to stderr.
 
 ---
 
-## Practical Examples
+## Output Path Rules
 
-## RTF to Markdown
+- `-o/--output` expects a file path.
+- Directory targets are rejected (including trailing `/` directory hints).
+- Parent directories for output files are created automatically when needed.
+
+---
+
+## Dependencies
+
+Install with all optional converters:
 ```bash
-python -m markdowner "/Users/max/Dropbox/Documents/Financial-Analysis-Draft.rtf" -o "/Users/max/Dropbox/Documents/Financial-Analysis-Draft.md"
+pip install -e ".[all]"
 ```
 
-## Convert DOCX and save beside original
+Optional/recommended for image metadata:
 ```bash
-python -m markdowner report.docx -o report.md
-```
-
-## Convert ZIP of mixed files
-```bash
-python -m markdowner documents.zip -o documents.md
+brew install exiftool
 ```
 
 ---
 
 ## Troubleshooting
 
-## RTF parse errors or unsupported constructs
-MarkDowner gives `.rtf` files precedence over CSV-style text detection and uses a native parser.
+### “is a directory” output error
+You passed a directory to `-o`. Provide a full output file path, e.g. `-o result.md`.
 
-If conversion fails with an RTF parse/error message:
-- Confirm the file starts with a valid RTF header (`{\rtf...}`)
-- Re-export from source app as RTF (or DOCX) and retry
-- For heavily styled/legacy RTF, convert to DOCX first for higher fidelity
+### Attachment warnings during MSG conversion
+Warnings like `attachment skipped (...)` mean attachment conversion failed or was unsupported. Main message output remains valid.
 
-## “ExifTool not configured” warning
-Optional: install ExifTool
-```bash
-brew install exiftool
-```
+### Converter dependency missing
+Install relevant extras (e.g. `.[pdf]`, `.[docx]`, `.[xls]`, `.[all]`).
 
-## Output looks rough for some RTF files
-- RTF conversion quality depends on Pandoc + source document complexity
-- If Pandoc fails, MarkDowner reports whether it was missing, timed out, or exited non-zero and includes truncated stderr when available
-- Try exporting source to DOCX first, then convert DOCX if needed
-
-## Command not found / wrong Python
-Ensure you are in the intended venv:
+### Wrong Python/venv
 ```bash
 which python
 python -V
 ```
+Ensure it points to your intended venv.
+
+---
+
+## Current Validation Status
+
+Latest local full test run:
+```bash
+.venv/bin/python -m pytest -q
+```
+Result:
+- **145 passed**
 
 ---
 
 ## Safety Notes
 
-- MarkDowner is local-first (no built-in remote URL conversion path)
-- Input and ZIP limits are enforced to reduce resource abuse risk
-- For untrusted files, keep using current security defaults and run in controlled environments
-
----
-
-## Recommended Workflow
-
-1. Activate venv
-2. Run conversion command
-3. Inspect resulting `.md`
-4. If needed, run a cleanup/edit pass on markdown for readability
-
----
-
-## One-liner launcher (optional)
-
-If you want a permanent shortcut:
-```bash
-cat > ~/bin/markdowner <<'EOF'
-#!/usr/bin/env bash
-source ~/.venvs/markdowner/bin/activate
-python -m markdowner "$@"
-EOF
-chmod +x ~/bin/markdowner
-```
-
-Then use:
-```bash
-markdowner input.docx -o output.md
-```
+- Local-first tool; no default remote URL conversion flow.
+- Input and ZIP limits are enforced.
+- For untrusted files, keep default limits and run in controlled environments.

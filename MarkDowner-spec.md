@@ -1,4 +1,4 @@
-# MarkDowner Specification (As-Built)
+# MarkDowner Specification (Current As-Built)
 
 Date: 2026-03-15  
 Project: `~/Projects/MarkDowner`  
@@ -11,12 +11,10 @@ Version: `1.0.0`
 
 MarkDowner is a local, CLI-first document-to-Markdown converter.
 
-Primary goal:
+Primary goals:
 - Convert local files and stdin streams to Markdown using one consistent CLI.
-
-Secondary goals:
-- Keep attack surface low (no server mode, no network fetch path in core flow).
-- Enforce practical resource controls for untrusted input.
+- Keep execution local and predictable.
+- Enforce practical safety limits for untrusted inputs.
 
 ---
 
@@ -27,12 +25,14 @@ Secondary goals:
 - Stdin conversion (`cat file | markdowner -x .ext`)
 - Output to stdout or `-o/--output`
 - Extension / MIME / charset hints
+- Recursive ZIP conversion for supported embedded types
+- Outlook MSG conversion with attachment handling
 
-### Out of scope (intentionally)
-- MCP/server mode
-- Remote URL conversion (`http/https/data/file` URI ingestion)
-- Cloud doc-intel style integrations
-- Implicit plugin marketplace loading
+### Out of scope (intentional)
+- Server/API mode
+- Remote URL ingestion in the core path
+- Cloud doc-intel integrations
+- Dynamic plugin marketplace loading
 
 ---
 
@@ -41,7 +41,7 @@ Secondary goals:
 Command:
 - `markdowner [filename]`
 
-Args:
+Arguments:
 - `-o, --output <path>`
 - `-x, --extension <.ext>`
 - `-m, --mime-type <type/subtype>`
@@ -58,124 +58,104 @@ Exit behavior:
 - `0` on success
 - `1` on controlled conversion/validation errors
 
+Additional current behavior:
+- `--output` rejects directory targets (including trailing-separator directory hints).
+- For MSG attachments converted to markdown, additional sibling output files are written with deterministic names.
+
 ---
 
 ## 4) Converter Coverage (current)
 
-| Format | Status | Backend/Path |
+| Format | Status | Notes |
 |---|---|---|
-| TXT / generic text | ✅ | plain text converter |
-| HTML | ✅ | BeautifulSoup + markdownify path |
-| CSV | ✅ | pandas-based table conversion |
+| TXT / generic text | ✅ | Plain text converter |
+| HTML | ✅ | BeautifulSoup + markdownify |
+| CSV | ✅ | Structured table conversion |
 | PDF | ✅ | pdfminer/pdfplumber path |
-| DOCX | ✅ | mammoth + markdown pipeline |
+| DOCX | ✅ | mammoth path |
 | PPTX | ✅ | python-pptx |
 | XLSX | ✅ | pandas + openpyxl |
 | XLS | ✅ | pandas + xlrd |
 | EPUB | ✅ | ebooklib |
-| MSG (Outlook) | ✅ | olefile path |
-| Images | ✅ | EXIF metadata path (+ ExifTool guard) |
-| Audio | ✅ | pydub / speech-recognition path |
-| ZIP | ✅ | recursive conversion with streaming limits |
-| RTF | ✅ | **native lexer/parser/renderer** (`_rtf_lexer`, `_rtf_parser`, `_rtf_renderer`) |
+| MSG (Outlook) | ✅ | olefile + attachment handling |
+| Images | ✅ | Metadata path + ExifTool guard |
+| Audio | ✅ | Optional audio converter path |
+| ZIP | ✅ | Recursive conversion with limits |
+| RTF | ✅ | Native lexer/parser path |
 
-Notes:
-- RTF conversion is native-only (no Pandoc dependency in the `.rtf` path).
-- ZIP processing includes nested handling with recursion/decompression limits.
+MSG attachment behavior (current):
+- Extracts MSG body + attachments where available.
+- Attempts attachment conversion via normal MarkDowner pipeline.
+- Supported attachment types output markdown sibling files.
+- Unsupported/failed attachment conversion is non-fatal and emitted as simple warnings.
+- Embedded Outlook item attachments are detected and reported as unsupported.
 
 ---
 
-## 5) Security Controls (implemented)
+## 5) Security and Reliability Controls (current)
 
-1. **Bounded read controls**
-   - Input-size enforcement for local and stdin streams.
-
-2. **Unsafe local source rejection**
-   - Non-regular local sources are rejected in local-file path.
-
-3. **ZIP protections**
-   - Entry count limit
-   - Per-entry decompressed byte limit
-   - Total decompressed byte limit
-   - Recursion depth limit
-   - Streaming enforcement of decompressed-byte limits
-
-4. **Bounded ZIP package detection**
-   - DOCX/PPTX/XLSX/EPUB signature checks are bounded.
-
-5. **Parser isolation hooks**
-   - Heavy parser paths use subprocess timeout/failure handling via internal sandbox helper.
-
-6. **Temp-file hygiene**
-   - TemporaryDirectory-based lifecycle for conversion temp artifacts (normal-exit cleanup).
-
-7. **ExifTool version guard**
-   - Enforces minimum safe ExifTool version (`>= 12.24`) before EXIF extraction.
+Implemented controls:
+1. Input size enforcement (local + stream paths)
+2. Rejection of unsafe/non-regular local sources
+3. ZIP entry/decompressed-size/recursion limits
+4. Bounded archive signature handling
+5. Parser subprocess timeout/memory controls
+6. Temporary artifact hygiene via scoped temp dirs
+7. ExifTool minimum safe version guard (`>= 12.24`)
+8. Narrowed conversion fallback policy:
+   - Fallback only for explicitly recoverable failures or parser sandbox failures
+   - Optional strict mode disables fallback
+9. Sandbox IPC deadlock hardening for larger payloads
 
 ---
 
 ## 6) Dependencies
 
-## Python requirement
+Python requirement:
 - `>=3.10`
 
-## Base deps (always)
+Base deps:
 - beautifulsoup4
 - markdownify
 - magika
 - charset-normalizer
 
-## Optional extras
+Extras:
 - `pdf`: pdfminer.six, pdfplumber
 - `docx`: mammoth, lxml
 - `pptx`: python-pptx
 - `xlsx`: pandas, openpyxl, tabulate
-- `xls`: pandas, xlrd
+- `xls`: pandas, xlrd, tabulate
 - `outlook`: olefile
 - `audio`: pydub, SpeechRecognition
 - `epub`: ebooklib
 
-## External binary
-- No external binary is required for RTF conversion.
-
-### Important packaging note
-Current `all` extra in `pyproject.toml` omits `tabulate`.  
-For broad install, use:
-```bash
-pip install -e ".[all]" tabulate
-```
+External binary (optional but recommended for image metadata):
+- `exiftool`
 
 ---
 
-## 7) Current Validation Snapshot
+## 7) Validation Snapshot
 
-Recent local validation in project venv:
+Most recent local validation:
 ```bash
-source .venv/bin/activate
-python -m pytest tests/ -q
+.venv/bin/python -m pytest -q
 ```
-Result observed: `72 passed` (last verified 2026-03-15).
+Result:
+- **145 passed** (verified 2026-03-15)
 
 ---
 
 ## 8) Known Limitations
 
-1. Native RTF parser v1 targets common control words; advanced tables/objects/rare controls may be skipped or flattened.
-2. Malformed RTF returns controlled conversion errors instead of best-effort recovery in all cases.
-3. Temp artifacts are cleaned on normal exit; abrupt kill/power-loss can leave residue.
-4. Memory hard caps depend partly on platform capability for resource limits.
+1. Advanced/rare RTF constructs may still be flattened.
+2. Embedded Outlook item attachments in MSG are currently reported unsupported.
+3. Conversion quality can vary based on source document quality/export behavior.
+4. Hard process termination can still leave temporary OS-level artifacts.
 
 ---
 
-## 9) Non-Goals (still true)
-
-- Real-time server/API mode
-- Remote web fetch conversion pipeline
-- Background autonomous plugin execution
-
----
-
-## 10) Operational Recommendation
+## 9) Operational Recommendation
 
 Use project-local venv for deterministic runs:
 ```bash
@@ -184,4 +164,4 @@ source .venv/bin/activate
 python -m markdowner --version
 ```
 
-For user-level shared runtime, use `~/.venvs/markdowner` and explicitly invoke that interpreter.
+For CI/optional dependency checks, include extra-specific installs where needed (for example `.[xls]`, `.[all]`).
